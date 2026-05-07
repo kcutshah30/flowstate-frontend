@@ -1,4 +1,5 @@
 import { createContext, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import {
     getUser,
     login as apiLogin,
@@ -6,10 +7,24 @@ import {
 } from "../features/auth/authApi";
 import { initCsrf } from "../api/csrf";
 
-export const AuthContext = createContext<any>(null);
+interface User {
+    id: number;
+    name?: string;
+    email: string;
+}
 
-export const AuthProvider = ({ children }: any) => {
-    const [user, setUser] = useState(null);
+interface AuthContextType {
+    user: User | null;
+    loading: boolean;
+    login: (email: string, password: string) => Promise<void>;
+    logout: () => Promise<void>;
+    loadUser: () => Promise<void>;
+}
+
+export const AuthContext = createContext<AuthContextType | null>(null);
+
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+    const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
 
     const loadUser = async () => {

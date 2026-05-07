@@ -1,13 +1,19 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 
 export default function Login() {
-    const { login } = useAuth();
+    const { login, user, loading } = useAuth();
     const navigate = useNavigate();
 
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+
+    useEffect(() => {
+        if (!loading && user) {
+            navigate("/");
+        }
+    }, [user, loading, navigate]);
 
     const handleLogin = async () => {
         try {
@@ -18,6 +24,8 @@ export default function Login() {
             alert("Login failed");
         }
     };
+
+    if (loading) return <div>Loading...</div>;
 
     return (
         <div>
