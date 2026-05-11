@@ -1,450 +1,147 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
-import {
-    getTasks,
-    createTask,
-    updateTask,
-    deleteTask,
-    completeTask,
-} from "../features/tasks/taskApi";
+import { getTasks } from "../features/tasks/taskApi";
+import { PageLayout } from "../components/PageLayout";
 
-interface Task {
+type TaskStatus = "todo" | "in_progress" | "completed";
+
+type Task = {
     id: number;
     title: string;
     description?: string;
-    completed: boolean;
     dueDate?: string;
-}
+    completed: boolean;
+    status: TaskStatus;
+};
 
-// Helper function to transform backend task data to frontend format
-const transformTask = (backendTask: any): Task => {
+const normalizeTask = (backendTask: any): Task => {
+    const completed = !!backendTask.completed;
     return {
         id: backendTask.id,
-        title: backendTask.title,
+        title: backendTask.title || "Untitled task",
         description: backendTask.description,
-        completed: backendTask.completed,
-        dueDate: backendTask.due_date || backendTask.dueDate,
+        dueDate: backendTask.due_date || backendTask.dueDate || "",
+        completed,
+        status: backendTask.status || (completed ? "completed" : "todo"),
     };
 };
 
+const resolvePayload = (payload: any) => {
+    if (Array.isArray(payload)) return payload;
+    if (Array.isArray(payload.data)) return payload.data;
+    if (Array.isArray(payload.tasks)) return payload.tasks;
+    return [];
+};
+
 export default function Dashboard() {
-    const { user, logout } = useAuth();
+    const { user } = useAuth();
     const [tasks, setTasks] = useState<Task[]>([]);
-    const [newTaskTitle, setNewTaskTitle] = useState("");
-    const [newTaskDescription, setNewTaskDescription] = useState("");
-    const [newTaskDueDate, setNewTaskDueDate] = useState("");
-    const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        const fetchTasks = async () => {
+        const loadTasks = async () => {
             try {
-                const tasksData = await getTasks();
-                if (tasksData.success && Array.isArray(tasksData.data)) {
-                    const transformedTasks = tasksData.data
-                        .map(transformTask)
-                        .filter((task: any) => task && task.id);
-                    setTasks(transformedTasks);
-                } else {
-                    console.error("Failed to fetch tasks:", tasksData);
-                    setTasks([]);
-                }
-            } catch (error) {
-                console.error("Failed to load tasks:", error);
-                setTasks([]);
+                const payload = await getTasks();
+                const items = resolvePayload(payload);
+                setTasks(items.map(normalizeTask));
+            } catch (err) {
+                console.error("Failed to load tasks:", err);
+                setError("Unable to load recent tasks.");
             } finally {
                 setLoading(false);
             }
         };
-        fetchTasks();
+
+        loadTasks();
     }, []);
 
-    const handleLogout = async () => {
-        await logout();
-    };
-
-    const handleCreateTask = async () => {
-        if (!newTaskTitle.trim()) return;
-        try {
-            const response = await createTask({
-                title: newTaskTitle,
-                description: newTaskDescription || undefined,
-                dueDate: newTaskDueDate || undefined,
-            });
-            if (response.success && (response.data || response.task)) {
-                const task = transformTask(response.data || response.task);
-                setTasks([...tasks, task]);
-                setNewTaskTitle("");
-                setNewTaskDescription("");
-                setNewTaskDueDate("");
-                alert("Task created successfully!");
-            } else {
-                console.error("Create failed - response:", response);
-                alert(
-                    "Failed to create task: " +
-                        (response.message || JSON.stringify(response.errors)),
-                );
-            }
-        } catch (error) {
-            console.error("Failed to create task:", error);
-            const errorMsg =
-                error instanceof Error ? error.message : "Unknown error";
-            alert("Failed to create task: " + errorMsg);
-        }
-    };
-
-    const handleUpdateTask = async (id: number, updates: Partial<Task>) => {
-        try {
-            const response = await updateTask(id, updates);
-            if (response.success && (response.data || response.task)) {
-                const task = transformTask(response.data || response.task);
-                setTasks(tasks.map((t) => (t.id === id ? task : t)));
-                setEditingTask(null);
-                alert("Task updated successfully!");
-            } else {
-                console.error("Update failed - response:", response);
-                alert(
-                    "Failed to update task: " +
-                        (response.message || "Unknown error"),
-                );
-            }
-        } catch (error) {
-            console.error("Failed to update task:", error);
-            const errorMsg =
-                error instanceof Error ? error.message : "Unknown error";
-            alert("Failed to update task: " + errorMsg);
-        }
-    };
-
-    const handleDeleteTask = async (id: number) => {
-        if (!confirm("Are you sure you want to delete this task?")) return;
-        try {
-            const response = await deleteTask(id);
-            if (response.success) {
-                setTasks(tasks.filter((task) => task.id !== id));
-                alert("Task deleted successfully!");
-            } else {
-                console.error("Delete failed - response:", response);
-                alert(
-                    "Failed to delete task: " +
-                        (response.message || JSON.stringify(response.errors)),
-                );
-            }
-        } catch (error) {
-            console.error("Failed to delete task:", error);
-            const errorMsg =
-                error instanceof Error ? error.message : "Unknown error";
-            alert("Failed to delete task: " + errorMsg);
-        }
-    };
-
-    const handleCompleteTask = async (id: number) => {
-        try {
-            const response = await completeTask(id);
-            if (response.success && (response.data || response.task)) {
-                const task = transformTask(response.data || response.task);
-                setTasks(tasks.map((t) => (t.id === id ? task : t)));
-                alert("Task completed successfully!");
-            } else {
-                console.error("Complete failed - response:", response);
-                alert(
-                    "Failed to complete task: " +
-                        (response.message || JSON.stringify(response.errors)),
-                );
-            }
-        } catch (error) {
-            console.error("Failed to complete task:", error);
-            const errorMsg =
-                error instanceof Error ? error.message : "Unknown error";
-            alert("Failed to complete task: " + errorMsg);
-        }
-    };
-
-    const startEditing = (task: Task) => {
-        setEditingTask(task);
-    };
-
-    const cancelEditing = () => {
-        setEditingTask(null);
-    };
-
-    if (loading) return <div>Loading...</div>;
+    const completedCount = tasks.filter((task) => task.completed).length;
+    const pendingCount = tasks.length - completedCount;
+    const recentTasks = tasks.slice(0, 4);
 
     return (
-        <div style={{ padding: "20px" }}>
-            <h1>Dashboard</h1>
-            {user && <p>Welcome, {user.name || user.email}</p>}
-            <button onClick={handleLogout}>Logout</button>
+        <PageLayout title="Dashboard">
+            <section className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                        <p className="text-sm uppercase tracking-[0.16em] text-slate-500">Total tasks</p>
+                        <h3 className="mt-4 text-3xl font-semibold text-slate-900">{tasks.length}</h3>
+                        <p className="mt-2 text-sm text-slate-500">Tasks pulled from your backend API.</p>
+                    </div>
+                    <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                        <p className="text-sm uppercase tracking-[0.16em] text-slate-500">Completed</p>
+                        <h3 className="mt-4 text-3xl font-semibold text-slate-900">{completedCount}</h3>
+                        <p className="mt-2 text-sm text-slate-500">Completed tasks from the current session.</p>
+                    </div>
+                    <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                        <p className="text-sm uppercase tracking-[0.16em] text-slate-500">Pending</p>
+                        <h3 className="mt-4 text-3xl font-semibold text-slate-900">{pendingCount}</h3>
+                        <p className="mt-2 text-sm text-slate-500">Tasks still waiting for updates.</p>
+                    </div>
+                    <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                        <p className="text-sm uppercase tracking-[0.16em] text-slate-500">Quick view</p>
+                        <h3 className="mt-4 text-3xl font-semibold text-slate-900">API-powered</h3>
+                        <p className="mt-2 text-sm text-slate-500">Existing authentication and CSRF logic stays intact.</p>
+                    </div>
+                </div>
 
-            <h2>Tasks</h2>
+                <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex items-center justify-between gap-4">
+                        <div>
+                            <h2 className="text-xl font-semibold text-slate-900">Placeholder charts</h2>
+                            <p className="mt-2 text-sm text-slate-500">Charts remain static for now until a chart library is added.</p>
+                        </div>
+                    </div>
+                    <div className="mt-6 space-y-4">
+                        <div className="h-24 rounded-[1.5rem] bg-slate-100" />
+                        <div className="h-24 rounded-[1.5rem] bg-slate-100" />
+                    </div>
+                </div>
+            </section>
 
-            {/* Tasks List */}
-            <div>
-                {!tasks || tasks.length === 0 ? (
-                    <p>No tasks yet.</p>
-                ) : (
-                    tasks
-                        .filter((task) => task && task.id)
-                        .map((task) => (
-                            <div
-                                key={task.id}
-                                style={{
-                                    marginBottom: "10px",
-                                    padding: "10px",
-                                    border: "1px solid #ddd",
-                                }}
-                            >
-                                {editingTask && editingTask.id === task.id ? (
+            <section className="mt-10">
+                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <h2 className="text-xl font-semibold text-slate-900">Recent tasks</h2>
+                        <p className="mt-1 text-sm text-slate-500">A quick look at tasks from your task API.</p>
+                    </div>
+                    <Link
+                        to="/tasks"
+                        className="inline-flex items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+                    >
+                        Open task board
+                    </Link>
+                </div>
+
+                <div className="space-y-4">
+                    {loading ? (
+                        <div className="rounded-[2rem] border border-slate-200 bg-white p-6 text-slate-500">Loading tasks...</div>
+                    ) : error ? (
+                        <div className="rounded-[2rem] border border-red-200 bg-red-50 p-6 text-red-700">{error}</div>
+                    ) : recentTasks.length === 0 ? (
+                        <div className="rounded-[2rem] border border-slate-200 bg-white p-6 text-slate-600">No recent tasks found.</div>
+                    ) : (
+                        recentTasks.map((task) => (
+                            <div key={task.id} className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
-                                        <input
-                                            type="text"
-                                            value={editingTask.title}
-                                            onChange={(e) =>
-                                                setEditingTask({
-                                                    ...editingTask,
-                                                    title: e.target.value,
-                                                })
-                                            }
-                                            style={{
-                                                display: "block",
-                                                marginBottom: "5px",
-                                                width: "300px",
-                                            }}
-                                        />
-                                        <textarea
-                                            value={
-                                                editingTask.description || ""
-                                            }
-                                            onChange={(e) =>
-                                                setEditingTask({
-                                                    ...editingTask,
-                                                    description: e.target.value,
-                                                })
-                                            }
-                                            style={{
-                                                display: "block",
-                                                marginBottom: "5px",
-                                                width: "300px",
-                                                height: "60px",
-                                            }}
-                                        />
-                                        <input
-                                            type="date"
-                                            value={
-                                                editingTask.dueDate
-                                                    ? editingTask.dueDate.split(
-                                                          "T",
-                                                      )[0]
-                                                    : ""
-                                            }
-                                            onChange={(e) =>
-                                                setEditingTask({
-                                                    ...editingTask,
-                                                    dueDate: e.target.value,
-                                                })
-                                            }
-                                            style={{
-                                                display: "block",
-                                                marginBottom: "5px",
-                                                width: "300px",
-                                            }}
-                                        />
-                                        <label>
-                                            <input
-                                                type="checkbox"
-                                                checked={editingTask.completed}
-                                                onChange={(e) =>
-                                                    setEditingTask({
-                                                        ...editingTask,
-                                                        completed:
-                                                            e.target.checked,
-                                                    })
-                                                }
-                                            />
-                                            Completed
-                                        </label>
-                                        <div style={{ marginTop: "10px" }}>
-                                            <button
-                                                onClick={() => {
-                                                    const originalTask =
-                                                        tasks.find(
-                                                            (t) =>
-                                                                t.id ===
-                                                                task.id,
-                                                        );
-                                                    if (
-                                                        !originalTask ||
-                                                        !editingTask
-                                                    )
-                                                        return;
-
-                                                    const updates: Partial<Task> =
-                                                        {};
-                                                    if (
-                                                        editingTask.title !==
-                                                        originalTask.title
-                                                    ) {
-                                                        updates.title =
-                                                            editingTask.title;
-                                                    }
-                                                    if (
-                                                        editingTask.description !==
-                                                        originalTask.description
-                                                    ) {
-                                                        updates.description =
-                                                            editingTask.description;
-                                                    }
-                                                    if (
-                                                        editingTask.dueDate !==
-                                                        originalTask.dueDate
-                                                    ) {
-                                                        updates.dueDate =
-                                                            editingTask.dueDate;
-                                                    }
-                                                    if (
-                                                        editingTask.completed !==
-                                                        originalTask.completed
-                                                    ) {
-                                                        updates.completed =
-                                                            editingTask.completed;
-                                                    }
-
-                                                    handleUpdateTask(
-                                                        task.id,
-                                                        updates,
-                                                    );
-                                                }}
-                                            >
-                                                Save
-                                            </button>
-                                            <button
-                                                onClick={cancelEditing}
-                                                style={{ marginLeft: "10px" }}
-                                            >
-                                                Cancel
-                                            </button>
-                                        </div>
+                                        <p className="text-sm text-slate-500">{task.dueDate ? `Due ${task.dueDate}` : "No due date"}</p>
+                                        <h3 className="mt-2 text-lg font-semibold text-slate-900">{task.title}</h3>
                                     </div>
-                                ) : (
-                                    <div>
-                                        <h4
-                                            style={{
-                                                textDecoration: task.completed
-                                                    ? "line-through"
-                                                    : "none",
-                                            }}
-                                        >
-                                            {task.title}
-                                        </h4>
-                                        {task.description && (
-                                            <p>{task.description}</p>
-                                        )}
-                                        <p>
-                                            Status:{" "}
-                                            {task.completed
-                                                ? "Completed"
-                                                : "Pending"}
-                                        </p>
-                                        {task.dueDate && (
-                                            <p>
-                                                Due Date:{" "}
-                                                {new Date(
-                                                    task.dueDate,
-                                                ).toLocaleDateString()}
-                                            </p>
-                                        )}
-                                        <div>
-                                            <button
-                                                onClick={() =>
-                                                    startEditing(task)
-                                                }
-                                            >
-                                                Edit
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    if (task.completed) {
-                                                        handleUpdateTask(
-                                                            task.id,
-                                                            {
-                                                                completed: false,
-                                                            },
-                                                        );
-                                                    } else {
-                                                        handleCompleteTask(
-                                                            task.id,
-                                                        );
-                                                    }
-                                                }}
-                                                style={{ marginLeft: "10px" }}
-                                            >
-                                                {task.completed
-                                                    ? "Mark Incomplete"
-                                                    : "Mark Complete"}
-                                            </button>
-                                            <button
-                                                onClick={() =>
-                                                    handleDeleteTask(task.id)
-                                                }
-                                                style={{
-                                                    marginLeft: "10px",
-                                                    color: "red",
-                                                }}
-                                            >
-                                                Delete
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
+                                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${task.completed ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>
+                                        {task.completed ? "Completed" : "Open"}
+                                    </span>
+                                </div>
+                                {task.description ? (
+                                    <p className="mt-4 text-sm leading-6 text-slate-600">{task.description}</p>
+                                ) : null}
                             </div>
                         ))
-                )}
-            </div>
-
-            {/* Create Task Form */}
-            <div
-                style={{
-                    marginTop: "20px",
-                    padding: "10px",
-                    border: "1px solid #ccc",
-                }}
-            >
-                <h3>Create New Task</h3>
-                <input
-                    type="text"
-                    placeholder="Task title"
-                    value={newTaskTitle}
-                    onChange={(e) => setNewTaskTitle(e.target.value)}
-                    style={{
-                        display: "block",
-                        marginBottom: "10px",
-                        width: "300px",
-                    }}
-                />
-                <textarea
-                    placeholder="Task description (optional)"
-                    value={newTaskDescription}
-                    onChange={(e) => setNewTaskDescription(e.target.value)}
-                    style={{
-                        display: "block",
-                        marginBottom: "10px",
-                        width: "300px",
-                        height: "60px",
-                    }}
-                />
-                <input
-                    type="date"
-                    placeholder="Due date (optional)"
-                    value={newTaskDueDate}
-                    onChange={(e) => setNewTaskDueDate(e.target.value)}
-                    style={{
-                        display: "block",
-                        marginBottom: "10px",
-                        width: "300px",
-                    }}
-                />
-                <button onClick={handleCreateTask}>Create Task</button>
-            </div>
-        </div>
+                    )}
+                </div>
+            </section>
+        </PageLayout>
     );
 }
