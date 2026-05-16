@@ -124,8 +124,8 @@ export default function Dashboard() {
                         </div>
                     </div>
                     <div className="mt-6 space-y-4">
-                        <div className="h-24 rounded-[1.5rem] bg-slate-100" />
-                        <div className="h-24 rounded-[1.5rem] bg-slate-100" />
+                        <div className="h-24 rounded-3xl bg-slate-100" />
+                        <div className="h-24 rounded-3xl bg-slate-100" />
                     </div>
                 </div>
             </section>
