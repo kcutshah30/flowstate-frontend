@@ -14,6 +14,11 @@ import {
     getCategoryMeta,
     getPriorityMeta,
 } from "../config/taskMeta";
+import {
+    formatDueDateDisplay,
+    fromDateTimeLocalValue,
+    toDateTimeLocalValue,
+} from "../utils/dueDate";
 
 type TaskStatus = "todo" | "in_progress" | "completed";
 
@@ -415,11 +420,15 @@ export default function Tasks() {
                                 className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                             />
                             <input
-                                value={dueDate}
+                                value={toDateTimeLocalValue(dueDate)}
                                 onChange={(event) =>
-                                    setDueDate(event.target.value)
+                                    setDueDate(
+                                        fromDateTimeLocalValue(
+                                            event.target.value,
+                                        ),
+                                    )
                                 }
-                                type="date"
+                                type="datetime-local"
                                 className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                             />
                         </div>
@@ -587,7 +596,9 @@ export default function Tasks() {
                                                         {task.dueDate ? (
                                                             <p className="mt-1 text-xs text-slate-500">
                                                                 Due{" "}
-                                                                {task.dueDate}
+                                                                {formatDueDateDisplay(
+                                                                    task.dueDate,
+                                                                )}
                                                             </p>
                                                         ) : null}
                                                         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -773,12 +784,14 @@ export default function Tasks() {
                             className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                         />
                         <input
-                            type="date"
-                            value={activeTask.dueDate}
+                            type="datetime-local"
+                            value={toDateTimeLocalValue(activeTask.dueDate)}
                             onChange={(event) =>
                                 setEditingTask({
                                     ...activeTask,
-                                    dueDate: event.target.value,
+                                    dueDate: fromDateTimeLocalValue(
+                                        event.target.value,
+                                    ),
                                 })
                             }
                             className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"

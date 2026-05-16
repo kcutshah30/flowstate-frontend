@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { getTasks } from "../features/tasks/taskApi";
 import { PageLayout } from "../components/PageLayout";
+import { formatDueDateDisplay } from "../utils/dueDate";
 
 type TaskStatus = "todo" | "in_progress" | "completed";
 
@@ -171,7 +172,7 @@ export default function Dashboard() {
                                     <div>
                                         <p className="text-sm text-slate-500">
                                             {task.dueDate
-                                                ? `Due ${task.dueDate}`
+                                                ? `Due ${formatDueDateDisplay(task.dueDate)}`
                                                 : "No due date"}
                                         </p>
                                         <h3 className="mt-2 text-lg font-semibold text-slate-900">
