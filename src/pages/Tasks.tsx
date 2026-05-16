@@ -1,15 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageLayout } from "../components/PageLayout";
+import { TagMultiSelect } from "../components/TagMultiSelect";
 import {
     createTask,
     deleteTask,
+    getCategories,
     getTasks,
+    getTags,
     updateTask,
 } from "../features/tasks/taskApi";
+import {
+    TASK_PRIORITY_META,
+    getCategoryMeta,
+    getPriorityMeta,
+} from "../config/taskMeta";
 
 type TaskStatus = "todo" | "in_progress" | "completed";
 
 type TaskPriority = "critical" | "high" | "medium" | "low";
+
+type Category = {
+    id: number;
+    name: string;
+    slug: string;
+    color?: string;
+    icon?: string;
+};
+
+type Tag = {
+    id: number;
+    name: string;
+    slug: string;
+};
 
 type Task = {
     id: number;
@@ -19,15 +41,40 @@ type Task = {
     completed: boolean;
     status: TaskStatus;
     priority: TaskPriority;
+    categoryId?: number;
+    category?: Category | null;
+    tags: Tag[];
+};
+
+const normalizeTagOption = (tag: any): Tag | null => {
+    if (!tag || typeof tag !== "object") return null;
+    const id = Number(tag.id);
+    if (!Number.isFinite(id)) return null;
+    return {
+        id,
+        name: tag.name || tag.slug || "",
+        slug: tag.slug || tag.name || "",
+    };
+};
+
+const normalizeTags = (backendTags: any): Tag[] => {
+    if (!Array.isArray(backendTags)) return [];
+    return backendTags
+        .map(normalizeTagOption)
+        .filter((tag): tag is Tag => tag !== null);
 };
 
 const normalizeTask = (backendTask: any): Task => {
     const completed = !!backendTask.completed;
     const rawPriority =
         backendTask.priority || backendTask.priority_level || "medium";
-    const priority = ["critical", "high", "medium", "low"].includes(rawPriority)
-        ? rawPriority
-        : "medium";
+    const category =
+        backendTask.category || backendTask.category_object || null;
+    const categoryId = backendTask.category_id || category?.id || undefined;
+    const priority = getPriorityMeta(rawPriority).key as TaskPriority;
+    const tags = normalizeTags(
+        backendTask.tags || backendTask.tag_objects || [],
+    );
 
     return {
         id: backendTask.id,
@@ -36,7 +83,10 @@ const normalizeTask = (backendTask: any): Task => {
         dueDate: backendTask.due_date || backendTask.dueDate || "",
         completed,
         status: backendTask.status || (completed ? "completed" : "todo"),
-        priority: priority as TaskPriority,
+        priority,
+        categoryId,
+        category,
+        tags,
     };
 };
 
@@ -53,19 +103,40 @@ const resolveTask = (payload: any): Task | null => {
     return normalizeTask(record);
 };
 
-const priorityStyleMap: Record<
-    TaskPriority,
-    { label: string; classes: string }
-> = {
-    critical: { label: "Critical", classes: "bg-red-100 text-red-700" },
-    high: { label: "High", classes: "bg-amber-100 text-amber-700" },
-    medium: { label: "Medium", classes: "bg-sky-100 text-sky-700" },
-    low: { label: "Low", classes: "bg-emerald-100 text-emerald-700" },
-};
+const priorityOptions = Object.keys(TASK_PRIORITY_META) as TaskPriority[];
 
 export default function Tasks() {
     const [tasks, setTasks] = useState<Task[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
+    const [tags, setTags] = useState<Tag[]>([]);
+    const [selectedCategoryId, setSelectedCategoryId] = useState<
+        number | "all"
+    >("all");
+    const [selectedTagId, setSelectedTagId] = useState<number | "all">("all");
+    const [createCategoryId, setCreateCategoryId] = useState<
+        number | undefined
+    >(undefined);
+    const [createTagIds, setCreateTagIds] = useState<number[]>([]);
     const [error, setError] = useState<string | null>(null);
+
+    const getCategoryById = (categoryId?: number) => {
+        return (
+            categories.find((category) => category.id === categoryId) ?? null
+        );
+    };
+
+    const normalizeResolvedTask = (task: Task, categoryId?: number) => {
+        const resolvedCategory = task.category?.slug
+            ? task.category
+            : categoryId
+              ? getCategoryById(categoryId)
+              : null;
+
+        return {
+            ...task,
+            category: resolvedCategory,
+        };
+    };
     const [title, setTitle] = useState("");
     const [description, setDescription] = useState("");
     const [dueDate, setDueDate] = useState("");
@@ -75,27 +146,63 @@ export default function Tasks() {
     const editTitleRef = useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
-        const loadTasks = async () => {
+        const loadTasksAndCategories = async () => {
             try {
-                const payload = await getTasks();
-                const items = resolvePayload(payload);
+                const [tasksPayload, categoriesPayload, tagsPayload] =
+                    await Promise.all([getTasks(), getCategories(), getTags()]);
+                const items = resolvePayload(tasksPayload);
+                const categoryItems = Array.isArray(categoriesPayload)
+                    ? categoriesPayload
+                    : Array.isArray(categoriesPayload.data)
+                      ? categoriesPayload.data
+                      : Array.isArray(categoriesPayload.categories)
+                        ? categoriesPayload.categories
+                        : [];
+                const tagItems = Array.isArray(tagsPayload)
+                    ? tagsPayload
+                    : Array.isArray(tagsPayload.data)
+                      ? tagsPayload.data
+                      : Array.isArray(tagsPayload.tags)
+                        ? tagsPayload.tags
+                        : [];
+
                 setTasks(items.map(normalizeTask));
+                setCategories(categoryItems);
+                setTags(
+                    tagItems
+                        .map(normalizeTagOption)
+                        .filter((tag): tag is Tag => tag !== null),
+                );
             } catch (err) {
-                console.error("Failed to load tasks:", err);
+                console.error("Failed to load tasks or categories:", err);
                 setError("Unable to load task board.");
             }
         };
 
-        loadTasks();
+        loadTasksAndCategories();
     }, []);
+
+    const filteredTasks = tasks.filter((task) => {
+        const categoryMatches =
+            selectedCategoryId === "all" ||
+            task.categoryId === selectedCategoryId;
+        const tagMatches =
+            selectedTagId === "all" ||
+            task.tags.some((tag) => tag.id === selectedTagId);
+        return categoryMatches && tagMatches;
+    });
 
     const columns = useMemo(
         () => ({
-            todo: tasks.filter((task) => task.status === "todo"),
-            in_progress: tasks.filter((task) => task.status === "in_progress"),
-            completed: tasks.filter((task) => task.status === "completed"),
+            todo: filteredTasks.filter((task) => task.status === "todo"),
+            in_progress: filteredTasks.filter(
+                (task) => task.status === "in_progress",
+            ),
+            completed: filteredTasks.filter(
+                (task) => task.status === "completed",
+            ),
         }),
-        [tasks],
+        [filteredTasks],
     );
 
     const handleCreateTask = async () => {
@@ -107,14 +214,23 @@ export default function Tasks() {
                 description: description.trim() || undefined,
                 dueDate: dueDate || undefined,
                 priority,
+                category_id:
+                    createCategoryId !== undefined ? createCategoryId : null,
+                tags: createTagIds,
             });
             const newTask = resolveTask(payload);
             if (newTask) {
-                setTasks((current) => [newTask, ...current]);
+                const taskWithCategory = normalizeResolvedTask(
+                    newTask,
+                    createCategoryId,
+                );
+                setTasks((current) => [taskWithCategory, ...current]);
                 setTitle("");
                 setDescription("");
                 setDueDate("");
                 setPriority("medium");
+                setCreateCategoryId(undefined);
+                setCreateTagIds([]);
             }
         } catch (err) {
             console.error("Failed to create task:", err);
@@ -134,12 +250,23 @@ export default function Tasks() {
                 dueDate: editingTask.dueDate,
                 completed: editingTask.completed,
                 priority: editingTask.priority,
+                category_id:
+                    editingTask.categoryId !== undefined
+                        ? editingTask.categoryId
+                        : null,
+                tags: editingTask.tags.map((tag) => tag.id),
             });
             const updatedTask = resolveTask(payload);
             if (updatedTask) {
+                const taskWithCategory = normalizeResolvedTask(
+                    updatedTask,
+                    editingTask.categoryId,
+                );
                 setTasks((current) =>
                     current.map((task) =>
-                        task.id === updatedTask.id ? updatedTask : task,
+                        task.id === taskWithCategory.id
+                            ? taskWithCategory
+                            : task,
                     ),
                 );
                 setEditingTask(null);
@@ -218,6 +345,57 @@ export default function Tasks() {
                                 columns.
                             </p>
                         </div>
+                        <div className="grid gap-3 min-w-[220px]">
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-600">
+                                    Filter by category
+                                </label>
+                                <select
+                                    value={selectedCategoryId}
+                                    onChange={(event) =>
+                                        setSelectedCategoryId(
+                                            event.target.value === "all"
+                                                ? "all"
+                                                : Number(event.target.value),
+                                        )
+                                    }
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                                >
+                                    <option value="all">All categories</option>
+                                    {categories.map((category) => (
+                                        <option
+                                            key={category.id}
+                                            value={category.id}
+                                        >
+                                            {category.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="mb-2 block text-sm font-medium text-slate-600">
+                                    Filter by tag
+                                </label>
+                                <select
+                                    value={selectedTagId}
+                                    onChange={(event) =>
+                                        setSelectedTagId(
+                                            event.target.value === "all"
+                                                ? "all"
+                                                : Number(event.target.value),
+                                        )
+                                    }
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                                >
+                                    <option value="all">All tags</option>
+                                    {tags.map((tag) => (
+                                        <option key={tag.id} value={tag.id}>
+                                            {tag.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="mt-6 space-y-4">
@@ -245,21 +423,71 @@ export default function Tasks() {
                                 className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                             />
                         </div>
-                        <div className="mt-3">
-                            <select
-                                value={priority}
-                                onChange={(event) =>
-                                    setPriority(
-                                        event.target.value as TaskPriority,
-                                    )
-                                }
-                                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                            >
-                                <option value="critical">Critical</option>
-                                <option value="high">High</option>
-                                <option value="medium">Medium</option>
-                                <option value="low">Low</option>
-                            </select>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <div>
+                                <select
+                                    value={priority}
+                                    onChange={(event) =>
+                                        setPriority(
+                                            event.target.value as TaskPriority,
+                                        )
+                                    }
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                                >
+                                    {priorityOptions.map((priorityKey) => {
+                                        const meta =
+                                            getPriorityMeta(priorityKey);
+                                        return (
+                                            <option
+                                                key={priorityKey}
+                                                value={priorityKey}
+                                            >
+                                                {meta.emoji} {meta.label}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
+                            <div>
+                                <select
+                                    value={createCategoryId ?? ""}
+                                    onChange={(event) =>
+                                        setCreateCategoryId(
+                                            event.target.value
+                                                ? Number(event.target.value)
+                                                : undefined,
+                                        )
+                                    }
+                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                                >
+                                    <option value="">No category</option>
+                                    {categories.map((category) => {
+                                        const categoryMeta =
+                                            category.slug &&
+                                            getCategoryMeta(category.slug);
+                                        return (
+                                            <option
+                                                key={category.id}
+                                                value={category.id}
+                                            >
+                                                {categoryMeta
+                                                    ? `${categoryMeta.emoji} ${category.name}`
+                                                    : category.name}
+                                            </option>
+                                        );
+                                    })}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="mt-4">
+                            <label className="mb-2 block text-sm font-medium text-slate-600">
+                                Tags
+                            </label>
+                            <TagMultiSelect
+                                options={tags}
+                                value={createTagIds}
+                                onChange={setCreateTagIds}
+                            />
                         </div>
                         <textarea
                             value={description}
@@ -362,16 +590,64 @@ export default function Tasks() {
                                                                 {task.dueDate}
                                                             </p>
                                                         ) : null}
+                                                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                            <span
+                                                                className="rounded-full px-3 py-1 text-[11px] font-semibold text-white"
+                                                                style={{
+                                                                    backgroundColor:
+                                                                        getCategoryMeta(
+                                                                            task
+                                                                                .category
+                                                                                ?.slug,
+                                                                        ).color,
+                                                                }}
+                                                            >
+                                                                {
+                                                                    getCategoryMeta(
+                                                                        task
+                                                                            .category
+                                                                            ?.slug,
+                                                                    ).emoji
+                                                                }{" "}
+                                                                {
+                                                                    getCategoryMeta(
+                                                                        task
+                                                                            .category
+                                                                            ?.slug,
+                                                                    ).label
+                                                                }
+                                                            </span>
+                                                        </div>
+                                                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                            {task.tags.map(
+                                                                (tag) => (
+                                                                    <span
+                                                                        key={
+                                                                            tag.id
+                                                                        }
+                                                                        className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700"
+                                                                    >
+                                                                        {
+                                                                            tag.name
+                                                                        }
+                                                                    </span>
+                                                                ),
+                                                            )}
+                                                        </div>
                                                     </div>
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <span
-                                                            className={`rounded-full px-3 py-1 text-xs font-semibold ${priorityStyleMap[task.priority].classes}`}
+                                                            className={`rounded-full px-3 py-1 text-xs font-semibold ${getPriorityMeta(task.priority).classes}`}
                                                         >
                                                             {
-                                                                priorityStyleMap[
-                                                                    task
-                                                                        .priority
-                                                                ].label
+                                                                getPriorityMeta(
+                                                                    task.priority,
+                                                                ).emoji
+                                                            }{" "}
+                                                            {
+                                                                getPriorityMeta(
+                                                                    task.priority,
+                                                                ).label
                                                             }
                                                         </span>
                                                         <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -508,7 +784,7 @@ export default function Tasks() {
                             className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                         />
                     </div>
-                    <div className="mt-4">
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
                         <select
                             value={activeTask.priority}
                             onChange={(event) =>
@@ -520,11 +796,68 @@ export default function Tasks() {
                             }
                             className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                         >
-                            <option value="critical">Critical</option>
-                            <option value="high">High</option>
-                            <option value="medium">Medium</option>
-                            <option value="low">Low</option>
+                            {priorityOptions.map((priorityKey) => {
+                                const meta = getPriorityMeta(priorityKey);
+                                return (
+                                    <option
+                                        key={priorityKey}
+                                        value={priorityKey}
+                                    >
+                                        {meta.emoji} {meta.label}
+                                    </option>
+                                );
+                            })}
                         </select>
+                        <select
+                            value={activeTask.categoryId ?? ""}
+                            onChange={(event) => {
+                                const categoryId = event.target.value
+                                    ? Number(event.target.value)
+                                    : undefined;
+                                setEditingTask({
+                                    ...activeTask,
+                                    categoryId,
+                                    category: categoryId
+                                        ? getCategoryById(categoryId)
+                                        : null,
+                                });
+                            }}
+                            className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                        >
+                            <option value="">No category</option>
+                            {categories.map((category) => {
+                                const categoryMeta =
+                                    category.slug &&
+                                    getCategoryMeta(category.slug);
+                                return (
+                                    <option
+                                        key={category.id}
+                                        value={category.id}
+                                    >
+                                        {categoryMeta
+                                            ? `${categoryMeta.emoji} ${category.name}`
+                                            : category.name}
+                                    </option>
+                                );
+                            })}
+                        </select>
+                    </div>
+                    <div className="mt-4">
+                        <label className="mb-2 block text-sm font-medium text-slate-600">
+                            Tags
+                        </label>
+                        <TagMultiSelect
+                            options={tags}
+                            value={activeTask.tags.map((tag) => tag.id)}
+                            onChange={(selectedIds) =>
+                                setEditingTask({
+                                    ...activeTask,
+                                    tags: tags.filter((tag) =>
+                                        selectedIds.includes(tag.id),
+                                    ),
+                                })
+                            }
+                        />
                     </div>
                     <textarea
                         value={activeTask.description || ""}
