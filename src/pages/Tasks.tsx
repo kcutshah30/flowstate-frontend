@@ -334,7 +334,7 @@ export default function Tasks() {
     return (
         <PageLayout title="Tasks">
             <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-                <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="rounded-4xl border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <h1 className="text-2xl font-semibold text-slate-900">
@@ -508,7 +508,7 @@ export default function Tasks() {
                     </div>
                 </div>
 
-                <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="rounded-4xl border border-slate-200 bg-white p-6 shadow-sm">
                     <h2 className="text-xl font-semibold text-slate-900">
                         Board status
                     </h2>
@@ -559,7 +559,7 @@ export default function Tasks() {
                         return (
                             <div
                                 key={columnKey}
-                                className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm"
+                                className="rounded-4xl border border-slate-200 bg-white p-5 shadow-sm"
                             >
                                 <h3 className="text-lg font-semibold text-slate-900">
                                     {title}
@@ -741,7 +741,7 @@ export default function Tasks() {
             </section>
 
             {activeTask ? (
-                <div className="mt-8 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="mt-8 rounded-4xl border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <h3 className="text-lg font-semibold text-slate-900">
