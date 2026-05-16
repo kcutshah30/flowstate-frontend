@@ -7,13 +7,16 @@ export const getTasks = async () => {
     return res.data;
 };
 
-export const createTask = async (task: { title: string; description?: string; dueDate?: string }) => {
+export const createTask = async (task: { title: string; description?: string; dueDate?: string; priority?: string }) => {
     await initCsrf();
     const res = await api.post("/api/tasks", task);
     return res.data;
 };
 
-export const updateTask = async (id: number, task: { title?: string; description?: string; completed?: boolean; dueDate?: string }) => {
+export const updateTask = async (
+    id: number,
+    task: { title?: string; description?: string; completed?: boolean; dueDate?: string; priority?: string },
+) => {
     await initCsrf();
     const res = await api.put(`/api/tasks/${id}`, task);
     return res.data;
