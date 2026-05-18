@@ -659,12 +659,6 @@ export default function Tasks() {
                                                                 ).label
                                                             }
                                                         </span>
-                                                        <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
-                                                            {task.status.replace(
-                                                                "_",
-                                                                " ",
-                                                            )}
-                                                        </span>
                                                     </div>
                                                 </div>
                                                 {task.description ? (
