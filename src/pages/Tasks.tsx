@@ -10,7 +10,13 @@ import {
     getTasks,
     getTags,
     updateTask,
+    updateTaskStatus,
 } from "../features/tasks/taskApi";
+import {
+    resolveTaskStatus,
+    resolveTaskStatusId,
+    type TaskStatus,
+} from "../features/tasks/taskTypes";
 import {
     TASK_PRIORITY_META,
     getCategoryMeta,
@@ -23,8 +29,6 @@ import {
 } from "../utils/dueDate";
 import { useSession } from "../hooks/useSession";
 import { isActiveSession } from "../features/sessions/sessionTypes";
-
-type TaskStatus = "todo" | "in_progress" | "completed";
 
 type TaskPriority = "critical" | "high" | "medium" | "low";
 
@@ -47,8 +51,8 @@ type Task = {
     title: string;
     description?: string;
     dueDate?: string;
-    completed: boolean;
     status: TaskStatus;
+    taskStatusId?: number;
     priority: TaskPriority;
     categoryId?: number;
     category?: Category | null;
@@ -74,7 +78,6 @@ const normalizeTags = (backendTags: any): Tag[] => {
 };
 
 const normalizeTask = (backendTask: any): Task => {
-    const completed = !!backendTask.completed;
     const rawPriority =
         backendTask.priority || backendTask.priority_level || "medium";
     const category =
@@ -90,8 +93,8 @@ const normalizeTask = (backendTask: any): Task => {
         title: backendTask.title || "Untitled task",
         description: backendTask.description,
         dueDate: backendTask.due_date || backendTask.dueDate || "",
-        completed,
-        status: backendTask.status || (completed ? "completed" : "todo"),
+        status: resolveTaskStatus(backendTask),
+        taskStatusId: resolveTaskStatusId(backendTask),
         priority,
         categoryId,
         category,
@@ -267,7 +270,6 @@ export default function Tasks() {
                 title: editingTask.title,
                 description: editingTask.description,
                 dueDate: editingTask.dueDate,
-                completed: editingTask.completed,
                 priority: editingTask.priority,
                 category_id:
                     editingTask.categoryId !== undefined
@@ -309,25 +311,53 @@ export default function Tasks() {
         }
     };
 
-    const moveTaskToInProgress = (taskId: number) => {
-        setTasks((current) =>
-            current.map((item) =>
-                item.id === taskId
-                    ? { ...item, status: "in_progress" as TaskStatus }
-                    : item,
-            ),
-        );
-    };
-
     const handleStartTracking = async (task: Task) => {
         clearError();
+        const previousStatus = task.status;
+        const shouldUpdateStatus = task.status !== "in_progress";
+
+        if (shouldUpdateStatus) {
+            setTasks((current) =>
+                current.map((item) =>
+                    item.id === task.id
+                        ? { ...item, status: "in_progress" as TaskStatus }
+                        : item,
+                ),
+            );
+        }
+
         try {
-            await startSession(task.id);
-            if (task.status !== "in_progress") {
-                moveTaskToInProgress(task.id);
+            if (shouldUpdateStatus) {
+                const payload = await updateTaskStatus(task.id, "in_progress");
+                const updatedTask = resolveTask(payload);
+                if (updatedTask) {
+                    setTasks((current) =>
+                        current.map((item) =>
+                            item.id === updatedTask.id ? updatedTask : item,
+                        ),
+                    );
+                }
             }
-        } catch {
-            // Session error is surfaced through session context.
+
+            await startSession(task.id);
+        } catch (err) {
+            if (shouldUpdateStatus) {
+                setTasks((current) =>
+                    current.map((item) =>
+                        item.id === task.id
+                            ? { ...item, status: previousStatus }
+                            : item,
+                    ),
+                );
+                try {
+                    await updateTaskStatus(task.id, previousStatus);
+                } catch {
+                    // Best-effort revert if session start failed after status update.
+                }
+                console.error("Failed to start tracking:", err);
+                setError("Could not start tracking.");
+            }
+            // Session errors are also surfaced through session context.
         }
     };
 
@@ -336,6 +366,13 @@ export default function Tasks() {
             await handleStartTracking(task);
             return;
         }
+
+        const previousStatus = task.status;
+        setTasks((current) =>
+            current.map((item) =>
+                item.id === task.id ? { ...item, status } : item,
+            ),
+        );
 
         try {
             if (
@@ -346,9 +383,7 @@ export default function Tasks() {
                 await stopSession();
             }
 
-            const payload = await updateTask(task.id, {
-                completed: status === "completed",
-            });
+            const payload = await updateTaskStatus(task.id, status);
             const updatedTask = resolveTask(payload);
             if (updatedTask) {
                 setTasks((current) =>
@@ -360,6 +395,13 @@ export default function Tasks() {
         } catch (err) {
             console.error("Failed to update status:", err);
             setError("Could not move task.");
+            setTasks((current) =>
+                current.map((item) =>
+                    item.id === task.id
+                        ? { ...item, status: previousStatus }
+                        : item,
+                ),
+            );
         }
     };
 
@@ -634,187 +676,190 @@ export default function Tasks() {
                                                     task.id;
 
                                             return (
-                                            <div
-                                                key={task.id}
-                                                className={`rounded-3xl border p-4 ${
-                                                    isTrackingThisTask
-                                                        ? "border-indigo-300 bg-indigo-50/60"
-                                                        : "border-slate-200 bg-slate-50"
-                                                }`}
-                                            >
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <h4 className="text-sm font-semibold text-slate-900">
-                                                            {task.title}
-                                                        </h4>
-                                                        {task.dueDate ? (
-                                                            <p className="mt-1 text-xs text-slate-500">
-                                                                Due{" "}
-                                                                {formatDueDateDisplay(
-                                                                    task.dueDate,
-                                                                )}
-                                                            </p>
-                                                        ) : null}
-                                                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                            <span
-                                                                className="rounded-full px-3 py-1 text-[11px] font-semibold text-white"
-                                                                style={{
-                                                                    backgroundColor:
+                                                <div
+                                                    key={task.id}
+                                                    className={`rounded-3xl border p-4 ${
+                                                        isTrackingThisTask
+                                                            ? "border-indigo-300 bg-indigo-50/60"
+                                                            : "border-slate-200 bg-slate-50"
+                                                    }`}
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <h4 className="text-sm font-semibold text-slate-900">
+                                                                {task.title}
+                                                            </h4>
+                                                            {task.dueDate ? (
+                                                                <p className="mt-1 text-xs text-slate-500">
+                                                                    Due{" "}
+                                                                    {formatDueDateDisplay(
+                                                                        task.dueDate,
+                                                                    )}
+                                                                </p>
+                                                            ) : null}
+                                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                                <span
+                                                                    className="rounded-full px-3 py-1 text-[11px] font-semibold text-white"
+                                                                    style={{
+                                                                        backgroundColor:
+                                                                            getCategoryMeta(
+                                                                                task
+                                                                                    .category
+                                                                                    ?.slug,
+                                                                            )
+                                                                                .color,
+                                                                    }}
+                                                                >
+                                                                    {
                                                                         getCategoryMeta(
                                                                             task
                                                                                 .category
                                                                                 ?.slug,
-                                                                        ).color,
-                                                                }}
+                                                                        ).emoji
+                                                                    }{" "}
+                                                                    {
+                                                                        getCategoryMeta(
+                                                                            task
+                                                                                .category
+                                                                                ?.slug,
+                                                                        ).label
+                                                                    }
+                                                                </span>
+                                                            </div>
+                                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                                {task.tags.map(
+                                                                    (tag) => (
+                                                                        <span
+                                                                            key={
+                                                                                tag.id
+                                                                            }
+                                                                            className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700"
+                                                                        >
+                                                                            {
+                                                                                tag.name
+                                                                            }
+                                                                        </span>
+                                                                    ),
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <span
+                                                                className={`rounded-full px-3 py-1 text-xs font-semibold ${getPriorityMeta(task.priority).classes}`}
                                                             >
                                                                 {
-                                                                    getCategoryMeta(
-                                                                        task
-                                                                            .category
-                                                                            ?.slug,
+                                                                    getPriorityMeta(
+                                                                        task.priority,
                                                                     ).emoji
                                                                 }{" "}
                                                                 {
-                                                                    getCategoryMeta(
-                                                                        task
-                                                                            .category
-                                                                            ?.slug,
+                                                                    getPriorityMeta(
+                                                                        task.priority,
                                                                     ).label
                                                                 }
                                                             </span>
                                                         </div>
-                                                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                            {task.tags.map(
-                                                                (tag) => (
-                                                                    <span
-                                                                        key={
-                                                                            tag.id
-                                                                        }
-                                                                        className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700"
-                                                                    >
-                                                                        {
-                                                                            tag.name
-                                                                        }
-                                                                    </span>
-                                                                ),
-                                                            )}
+                                                    </div>
+                                                    {task.description ? (
+                                                        <p className="mt-3 text-sm text-slate-600">
+                                                            {task.description}
+                                                        </p>
+                                                    ) : null}
+                                                    {isTrackingThisTask &&
+                                                    isActiveSession(
+                                                        activeSession,
+                                                    ) ? (
+                                                        <div className="mt-3">
+                                                            <TaskTimer
+                                                                session={
+                                                                    activeSession
+                                                                }
+                                                            />
                                                         </div>
-                                                    </div>
-                                                    <div className="flex flex-wrap items-center gap-2">
-                                                        <span
-                                                            className={`rounded-full px-3 py-1 text-xs font-semibold ${getPriorityMeta(task.priority).classes}`}
-                                                        >
-                                                            {
-                                                                getPriorityMeta(
-                                                                    task.priority,
-                                                                ).emoji
-                                                            }{" "}
-                                                            {
-                                                                getPriorityMeta(
-                                                                    task.priority,
-                                                                ).label
-                                                            }
-                                                        </span>
-                                                        <span className="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
-                                                            {task.status.replace(
-                                                                "_",
-                                                                " ",
-                                                            )}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                {task.description ? (
-                                                    <p className="mt-3 text-sm text-slate-600">
-                                                        {task.description}
-                                                    </p>
-                                                ) : null}
-                                                {isTrackingThisTask &&
-                                                isActiveSession(activeSession) ? (
-                                                    <div className="mt-3">
-                                                        <TaskTimer
-                                                            session={
-                                                                activeSession
-                                                            }
-                                                        />
-                                                    </div>
-                                                ) : null}
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    {columnKey !==
-                                                    "completed" ? (
-                                                        <>
-                                                        <SessionControls
-                                                            taskId={task.id}
-                                                            session={
-                                                                activeSession
-                                                            }
-                                                            hasOtherActiveSession={
-                                                                hasOtherActiveSession
-                                                            }
-                                                            busy={sessionBusy}
-                                                            onStart={() =>
-                                                                handleStartTracking(
-                                                                    task,
-                                                                )
-                                                            }
-                                                            onPause={
-                                                                pauseSession
-                                                            }
-                                                            onResume={
-                                                                resumeSession
-                                                            }
-                                                        />
+                                                    ) : null}
+                                                    <div className="mt-4 flex flex-wrap gap-2">
+                                                        {columnKey !==
+                                                        "completed" ? (
+                                                            <>
+                                                                <SessionControls
+                                                                    taskId={
+                                                                        task.id
+                                                                    }
+                                                                    session={
+                                                                        activeSession
+                                                                    }
+                                                                    hasOtherActiveSession={
+                                                                        hasOtherActiveSession
+                                                                    }
+                                                                    busy={
+                                                                        sessionBusy
+                                                                    }
+                                                                    onStart={() =>
+                                                                        handleStartTracking(
+                                                                            task,
+                                                                        )
+                                                                    }
+                                                                    onPause={
+                                                                        pauseSession
+                                                                    }
+                                                                    onResume={
+                                                                        resumeSession
+                                                                    }
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        handleChangeStatus(
+                                                                            task,
+                                                                            "completed",
+                                                                        )
+                                                                    }
+                                                                    className="rounded-full bg-emerald-900 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                                                                >
+                                                                    {columnKey ===
+                                                                    "todo"
+                                                                        ? "Mark Complete"
+                                                                        : "Finish"}
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    handleChangeStatus(
+                                                                        task,
+                                                                        "todo",
+                                                                    )
+                                                                }
+                                                                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700"
+                                                            >
+                                                                Move to Todo
+                                                            </button>
+                                                        )}
                                                         <button
                                                             type="button"
                                                             onClick={() =>
-                                                                handleChangeStatus(
+                                                                setEditingTask(
                                                                     task,
-                                                                    "completed",
                                                                 )
                                                             }
-                                                            className="rounded-full bg-emerald-900 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                                                            className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                                                         >
-                                                            {columnKey ===
-                                                            "todo"
-                                                                ? "Mark Complete"
-                                                                : "Finish"}
+                                                            Edit
                                                         </button>
-                                                        </>
-                                                    ) : (
                                                         <button
                                                             type="button"
                                                             onClick={() =>
-                                                                handleChangeStatus(
-                                                                    task,
-                                                                    "todo",
+                                                                handleDeleteTask(
+                                                                    task.id,
                                                                 )
                                                             }
-                                                            className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700"
+                                                            className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
                                                         >
-                                                            Move to Todo
+                                                            Delete
                                                         </button>
-                                                    )}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            setEditingTask(task)
-                                                        }
-                                                        className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            handleDeleteTask(
-                                                                task.id,
-                                                            )
-                                                        }
-                                                        className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                                                    >
-                                                        Delete
-                                                    </button>
+                                                    </div>
                                                 </div>
-                                            </div>
                                             );
                                         })
                                     )}

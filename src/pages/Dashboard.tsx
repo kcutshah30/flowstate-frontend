@@ -2,29 +2,28 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { getTasks } from "../features/tasks/taskApi";
+import {
+    resolveTaskStatus,
+    type TaskStatus,
+} from "../features/tasks/taskTypes";
 import { PageLayout } from "../components/PageLayout";
 import { formatDueDateDisplay } from "../utils/dueDate";
-
-type TaskStatus = "todo" | "in_progress" | "completed";
 
 type Task = {
     id: number;
     title: string;
     description?: string;
     dueDate?: string;
-    completed: boolean;
     status: TaskStatus;
 };
 
 const normalizeTask = (backendTask: any): Task => {
-    const completed = !!backendTask.completed;
     return {
         id: backendTask.id,
         title: backendTask.title || "Untitled task",
         description: backendTask.description,
         dueDate: backendTask.due_date || backendTask.dueDate || "",
-        completed,
-        status: backendTask.status || (completed ? "completed" : "todo"),
+        status: resolveTaskStatus(backendTask),
     };
 };
 
@@ -58,7 +57,9 @@ export default function Dashboard() {
         loadTasks();
     }, []);
 
-    const completedCount = tasks.filter((task) => task.completed).length;
+    const completedCount = tasks.filter(
+        (task) => task.status === "completed",
+    ).length;
     const pendingCount = tasks.length - completedCount;
     const recentTasks = tasks.slice(0, 4);
 
@@ -180,9 +181,11 @@ export default function Dashboard() {
                                         </h3>
                                     </div>
                                     <span
-                                        className={`rounded-full px-3 py-1 text-xs font-semibold ${task.completed ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}
+                                        className={`rounded-full px-3 py-1 text-xs font-semibold ${task.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}
                                     >
-                                        {task.completed ? "Completed" : "Open"}
+                                        {task.status === "completed"
+                                            ? "Completed"
+                                            : "Open"}
                                     </span>
                                 </div>
                                 {task.description ? (

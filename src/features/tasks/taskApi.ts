@@ -1,5 +1,6 @@
 import api from "../../api/axios";
 import { initCsrf } from "../../api/csrf";
+import type { TaskStatus } from "./taskTypes";
 
 export type TaskCreatePayload = {
     title: string;
@@ -8,12 +9,12 @@ export type TaskCreatePayload = {
     priority?: string;
     category_id?: number | null;
     tags?: number[];
+    status?: TaskStatus;
 };
 
 export type TaskUpdatePayload = {
     title?: string;
     description?: string;
-    completed?: boolean;
     dueDate?: string;
     priority?: string;
     category_id?: number | null;
@@ -50,14 +51,14 @@ export const updateTask = async (id: number, task: TaskUpdatePayload) => {
     return res.data;
 };
 
-export const deleteTask = async (id: number) => {
+export const updateTaskStatus = async (id: number, status: TaskStatus) => {
     await initCsrf();
-    const res = await api.delete(`/api/tasks/${id}`);
+    const res = await api.patch(`/api/tasks/${id}/status`, { status });
     return res.data;
 };
 
-export const completeTask = async (id: number) => {
+export const deleteTask = async (id: number) => {
     await initCsrf();
-    const res = await api.patch(`/api/tasks/${id}/complete`, { completed: true });
+    const res = await api.delete(`/api/tasks/${id}`);
     return res.data;
 };
