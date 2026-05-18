@@ -8,7 +8,13 @@ import {
     getTasks,
     getTags,
     updateTask,
+    updateTaskStatus,
 } from "../features/tasks/taskApi";
+import {
+    resolveTaskStatus,
+    resolveTaskStatusId,
+    type TaskStatus,
+} from "../features/tasks/taskTypes";
 import {
     TASK_PRIORITY_META,
     getCategoryMeta,
@@ -19,8 +25,6 @@ import {
     fromDateTimeLocalValue,
     toDateTimeLocalValue,
 } from "../utils/dueDate";
-
-type TaskStatus = "todo" | "in_progress" | "completed";
 
 type TaskPriority = "critical" | "high" | "medium" | "low";
 
@@ -43,8 +47,8 @@ type Task = {
     title: string;
     description?: string;
     dueDate?: string;
-    completed: boolean;
     status: TaskStatus;
+    taskStatusId?: number;
     priority: TaskPriority;
     categoryId?: number;
     category?: Category | null;
@@ -70,7 +74,6 @@ const normalizeTags = (backendTags: any): Tag[] => {
 };
 
 const normalizeTask = (backendTask: any): Task => {
-    const completed = !!backendTask.completed;
     const rawPriority =
         backendTask.priority || backendTask.priority_level || "medium";
     const category =
@@ -86,8 +89,8 @@ const normalizeTask = (backendTask: any): Task => {
         title: backendTask.title || "Untitled task",
         description: backendTask.description,
         dueDate: backendTask.due_date || backendTask.dueDate || "",
-        completed,
-        status: backendTask.status || (completed ? "completed" : "todo"),
+        status: resolveTaskStatus(backendTask),
+        taskStatusId: resolveTaskStatusId(backendTask),
         priority,
         categoryId,
         category,
@@ -253,7 +256,6 @@ export default function Tasks() {
                 title: editingTask.title,
                 description: editingTask.description,
                 dueDate: editingTask.dueDate,
-                completed: editingTask.completed,
                 priority: editingTask.priority,
                 category_id:
                     editingTask.categoryId !== undefined
@@ -296,21 +298,14 @@ export default function Tasks() {
     };
 
     const handleChangeStatus = async (task: Task, status: TaskStatus) => {
-        if (status === "in_progress") {
-            setTasks((current) =>
-                current.map((item) =>
-                    item.id === task.id
-                        ? { ...item, status: "in_progress" }
-                        : item,
-                ),
-            );
-            return;
-        }
+        setTasks((current) =>
+            current.map((item) =>
+                item.id === task.id ? { ...item, status } : item,
+            ),
+        );
 
         try {
-            const payload = await updateTask(task.id, {
-                completed: status === "completed",
-            });
+            const payload = await updateTaskStatus(task.id, status);
             const updatedTask = resolveTask(payload);
             if (updatedTask) {
                 setTasks((current) =>
@@ -322,6 +317,9 @@ export default function Tasks() {
         } catch (err) {
             console.error("Failed to update status:", err);
             setError("Could not move task.");
+            setTasks((current) =>
+                current.map((item) => (item.id === task.id ? task : item)),
+            );
         }
     };
 
@@ -894,12 +892,16 @@ export default function Tasks() {
                         </button>
                         <button
                             type="button"
-                            onClick={() =>
+                            onClick={async () => {
+                                await handleChangeStatus(
+                                    activeTask,
+                                    "in_progress",
+                                );
                                 setEditingTask({
                                     ...activeTask,
                                     status: "in_progress",
-                                })
-                            }
+                                });
+                            }}
                             className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                         >
                             Set in progress
