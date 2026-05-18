@@ -6,7 +6,7 @@ export const calculateElapsedSeconds = (
 ): number => {
     if (!session) return 0;
 
-    if (session.status === "completed" || session.status === "paused") {
+    if (session.status === "ended" || session.status === "paused") {
         return session.tracked_seconds;
     }
 

@@ -8,6 +8,7 @@ type SessionControlsProps = {
     onStart: () => void;
     onPause: () => void;
     onResume: () => void;
+    onStop: () => void;
 };
 
 const buttonClass =
@@ -21,6 +22,7 @@ export function SessionControls({
     onStart,
     onPause,
     onResume,
+    onStop,
 }: SessionControlsProps) {
     const isThisTaskSession = session?.task_id === taskId;
     const activeSession = isThisTaskSession ? session : null;
@@ -43,7 +45,7 @@ export function SessionControls({
         );
     }
 
-    if (activeSession.status === "completed") {
+    if (activeSession.status === "ended") {
         return null;
     }
 
@@ -68,6 +70,14 @@ export function SessionControls({
                     {busy ? "Resuming..." : "Resume"}
                 </button>
             )}
+            <button
+                type="button"
+                onClick={onStop}
+                disabled={busy}
+                className={`${buttonClass} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
+            >
+                {busy ? "Stopping..." : "Stop"}
+            </button>
         </div>
     );
 }

@@ -166,6 +166,10 @@ export default function Tasks() {
     const [priority, setPriority] = useState<TaskPriority>("medium");
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     const [createModalOpen, setCreateModalOpen] = useState(false);
+    const [completePromptTask, setCompletePromptTask] = useState<Task | null>(
+        null,
+    );
+    const [completingTask, setCompletingTask] = useState(false);
     const [saving, setSaving] = useState(false);
     const createTitleRef = useRef<HTMLInputElement | null>(null);
     const editTitleRef = useRef<HTMLInputElement | null>(null);
@@ -378,6 +382,68 @@ export default function Tasks() {
         }
     };
 
+    const handleStopTracking = async (task: Task) => {
+        if (
+            !activeSession ||
+            activeSession.task_id !== task.id ||
+            !isActiveSession(activeSession)
+        ) {
+            return;
+        }
+
+        clearError();
+        try {
+            await stopSession();
+            setCompletePromptTask(task);
+        } catch {
+            // Session errors are surfaced through session context.
+        }
+    };
+
+    const handleDismissCompletePrompt = () => {
+        setCompletePromptTask(null);
+    };
+
+    const handleConfirmTaskComplete = async () => {
+        if (!completePromptTask) return;
+
+        const task = completePromptTask;
+        const previousStatus = task.status;
+        setCompletingTask(true);
+        setTasks((current) =>
+            current.map((item) =>
+                item.id === task.id
+                    ? { ...item, status: "completed" as TaskStatus }
+                    : item,
+            ),
+        );
+
+        try {
+            const payload = await updateTaskStatus(task.id, "completed");
+            const updatedTask = resolveTask(payload);
+            if (updatedTask) {
+                setTasks((current) =>
+                    current.map((item) =>
+                        item.id === updatedTask.id ? updatedTask : item,
+                    ),
+                );
+            }
+            setCompletePromptTask(null);
+        } catch (err) {
+            console.error("Failed to complete task:", err);
+            setError("Could not mark task as complete.");
+            setTasks((current) =>
+                current.map((item) =>
+                    item.id === task.id
+                        ? { ...item, status: previousStatus }
+                        : item,
+                ),
+            );
+        } finally {
+            setCompletingTask(false);
+        }
+    };
+
     const handleChangeStatus = async (task: Task, status: TaskStatus) => {
         if (status === "in_progress") {
             await handleStartTracking(task);
@@ -392,14 +458,6 @@ export default function Tasks() {
         );
 
         try {
-            if (
-                status === "completed" &&
-                activeSession?.task_id === task.id &&
-                isActiveSession(activeSession)
-            ) {
-                await stopSession();
-            }
-
             const payload = await updateTaskStatus(task.id, status);
             const updatedTask = resolveTask(payload);
             if (updatedTask) {
@@ -685,22 +743,34 @@ export default function Tasks() {
                                                                     onResume={
                                                                         resumeSession
                                                                     }
-                                                                />
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() =>
-                                                                        handleChangeStatus(
+                                                                    onStop={() =>
+                                                                        handleStopTracking(
                                                                             task,
-                                                                            "completed",
                                                                         )
                                                                     }
-                                                                    className="rounded-full bg-emerald-900 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-                                                                >
-                                                                    {columnKey ===
-                                                                    "todo"
-                                                                        ? "Mark Complete"
-                                                                        : "Finish"}
-                                                                </button>
+                                                                />
+                                                                {!(
+                                                                    isTrackingThisTask &&
+                                                                    isActiveSession(
+                                                                        activeSession,
+                                                                    )
+                                                                ) ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            handleChangeStatus(
+                                                                                task,
+                                                                                "completed",
+                                                                            )
+                                                                        }
+                                                                        className="rounded-full bg-emerald-900 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                                                                    >
+                                                                        {columnKey ===
+                                                                        "todo"
+                                                                            ? "Mark Complete"
+                                                                            : "Finish"}
+                                                                    </button>
+                                                                ) : null}
                                                             </>
                                                         ) : (
                                                             <button
@@ -749,6 +819,38 @@ export default function Tasks() {
                     },
                 )}
             </section>
+
+            <Modal
+                open={completePromptTask !== null}
+                onClose={handleDismissCompletePrompt}
+                title="End tracking session?"
+                description={
+                    completePromptTask
+                        ? `Mark "${completePromptTask.title}" as complete?`
+                        : undefined
+                }
+            >
+                <div className="flex flex-wrap gap-3">
+                    <button
+                        type="button"
+                        onClick={handleConfirmTaskComplete}
+                        disabled={completingTask}
+                        className="rounded-full bg-emerald-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+                    >
+                        {completingTask
+                            ? "Saving..."
+                            : "Yes, mark complete"}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleDismissCompletePrompt}
+                        disabled={completingTask}
+                        className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    >
+                        No, keep in progress
+                    </button>
+                </div>
+            </Modal>
 
             <Modal
                 open={createModalOpen}

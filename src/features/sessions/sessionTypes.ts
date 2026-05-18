@@ -1,4 +1,4 @@
-export type SessionStatus = "running" | "paused" | "completed";
+export type SessionStatus = "running" | "paused" | "ended";
 
 export type TaskSession = {
     id: number;
@@ -48,12 +48,15 @@ export const normalizeSession = (payload: unknown): TaskSession | null => {
     const id = Number(session.id);
     const taskId = Number(session.task_id);
     const status = session.status;
-
     if (
-        !Number.isFinite(id) ||
-        !Number.isFinite(taskId) ||
-        (status !== "running" && status !== "paused" && status !== "completed")
+        status !== "running" &&
+        status !== "paused" &&
+        status !== "ended"
     ) {
+        return null;
+    }
+
+    if (!Number.isFinite(id) || !Number.isFinite(taskId)) {
         return null;
     }
 
