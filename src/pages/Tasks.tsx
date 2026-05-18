@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageLayout } from "../components/PageLayout";
+import { SessionControls } from "../components/SessionControls";
 import { TagMultiSelect } from "../components/TagMultiSelect";
+import { TaskTimer } from "../components/TaskTimer";
 import {
     createTask,
     deleteTask,
@@ -19,6 +21,8 @@ import {
     fromDateTimeLocalValue,
     toDateTimeLocalValue,
 } from "../utils/dueDate";
+import { useSession } from "../hooks/useSession";
+import { isActiveSession } from "../features/sessions/sessionTypes";
 
 type TaskStatus = "todo" | "in_progress" | "completed";
 
@@ -111,6 +115,16 @@ const resolveTask = (payload: any): Task | null => {
 const priorityOptions = Object.keys(TASK_PRIORITY_META) as TaskPriority[];
 
 export default function Tasks() {
+    const {
+        activeSession,
+        busy: sessionBusy,
+        error: sessionError,
+        clearError,
+        startSession,
+        pauseSession,
+        resumeSession,
+        stopSession,
+    } = useSession();
     const [tasks, setTasks] = useState<Task[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
     const [tags, setTags] = useState<Tag[]>([]);
@@ -295,19 +309,43 @@ export default function Tasks() {
         }
     };
 
+    const moveTaskToInProgress = (taskId: number) => {
+        setTasks((current) =>
+            current.map((item) =>
+                item.id === taskId
+                    ? { ...item, status: "in_progress" as TaskStatus }
+                    : item,
+            ),
+        );
+    };
+
+    const handleStartTracking = async (task: Task) => {
+        clearError();
+        try {
+            await startSession(task.id);
+            if (task.status !== "in_progress") {
+                moveTaskToInProgress(task.id);
+            }
+        } catch {
+            // Session error is surfaced through session context.
+        }
+    };
+
     const handleChangeStatus = async (task: Task, status: TaskStatus) => {
         if (status === "in_progress") {
-            setTasks((current) =>
-                current.map((item) =>
-                    item.id === task.id
-                        ? { ...item, status: "in_progress" }
-                        : item,
-                ),
-            );
+            await handleStartTracking(task);
             return;
         }
 
         try {
+            if (
+                status === "completed" &&
+                activeSession?.task_id === task.id &&
+                isActiveSession(activeSession)
+            ) {
+                await stopSession();
+            }
+
             const payload = await updateTask(task.id, {
                 completed: status === "completed",
             });
@@ -404,9 +442,9 @@ export default function Tasks() {
                     </div>
 
                     <div className="mt-6 space-y-4">
-                        {error ? (
+                        {error || sessionError ? (
                             <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                                {error}
+                                {error || sessionError}
                             </div>
                         ) : null}
 
@@ -583,10 +621,26 @@ export default function Tasks() {
                                             No tasks here yet.
                                         </div>
                                     ) : (
-                                        columnTasks.map((task) => (
+                                        columnTasks.map((task) => {
+                                            const isTrackingThisTask =
+                                                activeSession?.task_id ===
+                                                task.id;
+                                            const hasOtherActiveSession =
+                                                activeSession !== null &&
+                                                isActiveSession(
+                                                    activeSession,
+                                                ) &&
+                                                activeSession.task_id !==
+                                                    task.id;
+
+                                            return (
                                             <div
                                                 key={task.id}
-                                                className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
+                                                className={`rounded-3xl border p-4 ${
+                                                    isTrackingThisTask
+                                                        ? "border-indigo-300 bg-indigo-50/60"
+                                                        : "border-slate-200 bg-slate-50"
+                                                }`}
                                             >
                                                 <div className="flex items-start justify-between gap-3">
                                                     <div>
@@ -674,9 +728,41 @@ export default function Tasks() {
                                                         {task.description}
                                                     </p>
                                                 ) : null}
+                                                {isTrackingThisTask &&
+                                                isActiveSession(activeSession) ? (
+                                                    <div className="mt-3">
+                                                        <TaskTimer
+                                                            session={
+                                                                activeSession
+                                                            }
+                                                        />
+                                                    </div>
+                                                ) : null}
                                                 <div className="mt-4 flex flex-wrap gap-2">
                                                     {columnKey !==
                                                     "completed" ? (
+                                                        <>
+                                                        <SessionControls
+                                                            taskId={task.id}
+                                                            session={
+                                                                activeSession
+                                                            }
+                                                            hasOtherActiveSession={
+                                                                hasOtherActiveSession
+                                                            }
+                                                            busy={sessionBusy}
+                                                            onStart={() =>
+                                                                handleStartTracking(
+                                                                    task,
+                                                                )
+                                                            }
+                                                            onPause={
+                                                                pauseSession
+                                                            }
+                                                            onResume={
+                                                                resumeSession
+                                                            }
+                                                        />
                                                         <button
                                                             type="button"
                                                             onClick={() =>
@@ -692,6 +778,7 @@ export default function Tasks() {
                                                                 ? "Mark Complete"
                                                                 : "Finish"}
                                                         </button>
+                                                        </>
                                                     ) : (
                                                         <button
                                                             type="button"
@@ -706,20 +793,6 @@ export default function Tasks() {
                                                             Move to Todo
                                                         </button>
                                                     )}
-                                                    {columnKey === "todo" ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                handleChangeStatus(
-                                                                    task,
-                                                                    "in_progress",
-                                                                )
-                                                            }
-                                                            className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700"
-                                                        >
-                                                            Start
-                                                        </button>
-                                                    ) : null}
                                                     <button
                                                         type="button"
                                                         onClick={() =>
@@ -742,7 +815,8 @@ export default function Tasks() {
                                                     </button>
                                                 </div>
                                             </div>
-                                        ))
+                                            );
+                                        })
                                     )}
                                 </div>
                             </div>
