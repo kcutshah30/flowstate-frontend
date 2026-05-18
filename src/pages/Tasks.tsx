@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageLayout } from "../components/PageLayout";
+import { SessionControls } from "../components/SessionControls";
 import { TagMultiSelect } from "../components/TagMultiSelect";
+import { TaskTimer } from "../components/TaskTimer";
 import {
     createTask,
     deleteTask,
@@ -25,6 +27,8 @@ import {
     fromDateTimeLocalValue,
     toDateTimeLocalValue,
 } from "../utils/dueDate";
+import { useSession } from "../hooks/useSession";
+import { isActiveSession } from "../features/sessions/sessionTypes";
 
 type TaskPriority = "critical" | "high" | "medium" | "low";
 
@@ -114,6 +118,16 @@ const resolveTask = (payload: any): Task | null => {
 const priorityOptions = Object.keys(TASK_PRIORITY_META) as TaskPriority[];
 
 export default function Tasks() {
+    const {
+        activeSession,
+        busy: sessionBusy,
+        error: sessionError,
+        clearError,
+        startSession,
+        pauseSession,
+        resumeSession,
+        stopSession,
+    } = useSession();
     const [tasks, setTasks] = useState<Task[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
     const [tags, setTags] = useState<Tag[]>([]);
@@ -297,7 +311,63 @@ export default function Tasks() {
         }
     };
 
+    const handleStartTracking = async (task: Task) => {
+        clearError();
+        const previousStatus = task.status;
+        const shouldUpdateStatus = task.status !== "in_progress";
+
+        if (shouldUpdateStatus) {
+            setTasks((current) =>
+                current.map((item) =>
+                    item.id === task.id
+                        ? { ...item, status: "in_progress" as TaskStatus }
+                        : item,
+                ),
+            );
+        }
+
+        try {
+            if (shouldUpdateStatus) {
+                const payload = await updateTaskStatus(task.id, "in_progress");
+                const updatedTask = resolveTask(payload);
+                if (updatedTask) {
+                    setTasks((current) =>
+                        current.map((item) =>
+                            item.id === updatedTask.id ? updatedTask : item,
+                        ),
+                    );
+                }
+            }
+
+            await startSession(task.id);
+        } catch (err) {
+            if (shouldUpdateStatus) {
+                setTasks((current) =>
+                    current.map((item) =>
+                        item.id === task.id
+                            ? { ...item, status: previousStatus }
+                            : item,
+                    ),
+                );
+                try {
+                    await updateTaskStatus(task.id, previousStatus);
+                } catch {
+                    // Best-effort revert if session start failed after status update.
+                }
+                console.error("Failed to start tracking:", err);
+                setError("Could not start tracking.");
+            }
+            // Session errors are also surfaced through session context.
+        }
+    };
+
     const handleChangeStatus = async (task: Task, status: TaskStatus) => {
+        if (status === "in_progress") {
+            await handleStartTracking(task);
+            return;
+        }
+
+        const previousStatus = task.status;
         setTasks((current) =>
             current.map((item) =>
                 item.id === task.id ? { ...item, status } : item,
@@ -305,6 +375,14 @@ export default function Tasks() {
         );
 
         try {
+            if (
+                status === "completed" &&
+                activeSession?.task_id === task.id &&
+                isActiveSession(activeSession)
+            ) {
+                await stopSession();
+            }
+
             const payload = await updateTaskStatus(task.id, status);
             const updatedTask = resolveTask(payload);
             if (updatedTask) {
@@ -318,7 +396,11 @@ export default function Tasks() {
             console.error("Failed to update status:", err);
             setError("Could not move task.");
             setTasks((current) =>
-                current.map((item) => (item.id === task.id ? task : item)),
+                current.map((item) =>
+                    item.id === task.id
+                        ? { ...item, status: previousStatus }
+                        : item,
+                ),
             );
         }
     };
@@ -402,9 +484,9 @@ export default function Tasks() {
                     </div>
 
                     <div className="mt-6 space-y-4">
-                        {error ? (
+                        {error || sessionError ? (
                             <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                                {error}
+                                {error || sessionError}
                             </div>
                         ) : null}
 
@@ -581,160 +663,205 @@ export default function Tasks() {
                                             No tasks here yet.
                                         </div>
                                     ) : (
-                                        columnTasks.map((task) => (
-                                            <div
-                                                key={task.id}
-                                                className="rounded-3xl border border-slate-200 bg-slate-50 p-4"
-                                            >
-                                                <div className="flex items-start justify-between gap-3">
-                                                    <div>
-                                                        <h4 className="text-sm font-semibold text-slate-900">
-                                                            {task.title}
-                                                        </h4>
-                                                        {task.dueDate ? (
-                                                            <p className="mt-1 text-xs text-slate-500">
-                                                                Due{" "}
-                                                                {formatDueDateDisplay(
-                                                                    task.dueDate,
-                                                                )}
-                                                            </p>
-                                                        ) : null}
-                                                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                            <span
-                                                                className="rounded-full px-3 py-1 text-[11px] font-semibold text-white"
-                                                                style={{
-                                                                    backgroundColor:
+                                        columnTasks.map((task) => {
+                                            const isTrackingThisTask =
+                                                activeSession?.task_id ===
+                                                task.id;
+                                            const hasOtherActiveSession =
+                                                activeSession !== null &&
+                                                isActiveSession(
+                                                    activeSession,
+                                                ) &&
+                                                activeSession.task_id !==
+                                                    task.id;
+
+                                            return (
+                                                <div
+                                                    key={task.id}
+                                                    className={`rounded-3xl border p-4 ${
+                                                        isTrackingThisTask
+                                                            ? "border-indigo-300 bg-indigo-50/60"
+                                                            : "border-slate-200 bg-slate-50"
+                                                    }`}
+                                                >
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <h4 className="text-sm font-semibold text-slate-900">
+                                                                {task.title}
+                                                            </h4>
+                                                            {task.dueDate ? (
+                                                                <p className="mt-1 text-xs text-slate-500">
+                                                                    Due{" "}
+                                                                    {formatDueDateDisplay(
+                                                                        task.dueDate,
+                                                                    )}
+                                                                </p>
+                                                            ) : null}
+                                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                                <span
+                                                                    className="rounded-full px-3 py-1 text-[11px] font-semibold text-white"
+                                                                    style={{
+                                                                        backgroundColor:
+                                                                            getCategoryMeta(
+                                                                                task
+                                                                                    .category
+                                                                                    ?.slug,
+                                                                            )
+                                                                                .color,
+                                                                    }}
+                                                                >
+                                                                    {
                                                                         getCategoryMeta(
                                                                             task
                                                                                 .category
                                                                                 ?.slug,
-                                                                        ).color,
-                                                                }}
+                                                                        ).emoji
+                                                                    }{" "}
+                                                                    {
+                                                                        getCategoryMeta(
+                                                                            task
+                                                                                .category
+                                                                                ?.slug,
+                                                                        ).label
+                                                                    }
+                                                                </span>
+                                                            </div>
+                                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                                {task.tags.map(
+                                                                    (tag) => (
+                                                                        <span
+                                                                            key={
+                                                                                tag.id
+                                                                            }
+                                                                            className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700"
+                                                                        >
+                                                                            {
+                                                                                tag.name
+                                                                            }
+                                                                        </span>
+                                                                    ),
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <span
+                                                                className={`rounded-full px-3 py-1 text-xs font-semibold ${getPriorityMeta(task.priority).classes}`}
                                                             >
                                                                 {
-                                                                    getCategoryMeta(
-                                                                        task
-                                                                            .category
-                                                                            ?.slug,
+                                                                    getPriorityMeta(
+                                                                        task.priority,
                                                                     ).emoji
                                                                 }{" "}
                                                                 {
-                                                                    getCategoryMeta(
-                                                                        task
-                                                                            .category
-                                                                            ?.slug,
+                                                                    getPriorityMeta(
+                                                                        task.priority,
                                                                     ).label
                                                                 }
                                                             </span>
                                                         </div>
-                                                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                            {task.tags.map(
-                                                                (tag) => (
-                                                                    <span
-                                                                        key={
-                                                                            tag.id
-                                                                        }
-                                                                        className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700"
-                                                                    >
-                                                                        {
-                                                                            tag.name
-                                                                        }
-                                                                    </span>
-                                                                ),
-                                                            )}
-                                                        </div>
                                                     </div>
-                                                    <div className="flex flex-wrap items-center gap-2">
-                                                        <span
-                                                            className={`rounded-full px-3 py-1 text-xs font-semibold ${getPriorityMeta(task.priority).classes}`}
-                                                        >
-                                                            {
-                                                                getPriorityMeta(
-                                                                    task.priority,
-                                                                ).emoji
-                                                            }{" "}
-                                                            {
-                                                                getPriorityMeta(
-                                                                    task.priority,
-                                                                ).label
-                                                            }
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                {task.description ? (
-                                                    <p className="mt-3 text-sm text-slate-600">
-                                                        {task.description}
-                                                    </p>
-                                                ) : null}
-                                                <div className="mt-4 flex flex-wrap gap-2">
-                                                    {columnKey !==
-                                                    "completed" ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                handleChangeStatus(
-                                                                    task,
-                                                                    "completed",
-                                                                )
-                                                            }
-                                                            className="rounded-full bg-emerald-900 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
-                                                        >
-                                                            {columnKey ===
-                                                            "todo"
-                                                                ? "Mark Complete"
-                                                                : "Finish"}
-                                                        </button>
-                                                    ) : (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                handleChangeStatus(
-                                                                    task,
-                                                                    "todo",
-                                                                )
-                                                            }
-                                                            className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700"
-                                                        >
-                                                            Move to Todo
-                                                        </button>
-                                                    )}
-                                                    {columnKey === "todo" ? (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() =>
-                                                                handleChangeStatus(
-                                                                    task,
-                                                                    "in_progress",
-                                                                )
-                                                            }
-                                                            className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700"
-                                                        >
-                                                            Start
-                                                        </button>
+                                                    {task.description ? (
+                                                        <p className="mt-3 text-sm text-slate-600">
+                                                            {task.description}
+                                                        </p>
                                                     ) : null}
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            setEditingTask(task)
-                                                        }
-                                                        className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                                    >
-                                                        Edit
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            handleDeleteTask(
-                                                                task.id,
-                                                            )
-                                                        }
-                                                        className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
-                                                    >
-                                                        Delete
-                                                    </button>
+                                                    {isTrackingThisTask &&
+                                                    isActiveSession(
+                                                        activeSession,
+                                                    ) ? (
+                                                        <div className="mt-3">
+                                                            <TaskTimer
+                                                                session={
+                                                                    activeSession
+                                                                }
+                                                            />
+                                                        </div>
+                                                    ) : null}
+                                                    <div className="mt-4 flex flex-wrap gap-2">
+                                                        {columnKey !==
+                                                        "completed" ? (
+                                                            <>
+                                                                <SessionControls
+                                                                    taskId={
+                                                                        task.id
+                                                                    }
+                                                                    session={
+                                                                        activeSession
+                                                                    }
+                                                                    hasOtherActiveSession={
+                                                                        hasOtherActiveSession
+                                                                    }
+                                                                    busy={
+                                                                        sessionBusy
+                                                                    }
+                                                                    onStart={() =>
+                                                                        handleStartTracking(
+                                                                            task,
+                                                                        )
+                                                                    }
+                                                                    onPause={
+                                                                        pauseSession
+                                                                    }
+                                                                    onResume={
+                                                                        resumeSession
+                                                                    }
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() =>
+                                                                        handleChangeStatus(
+                                                                            task,
+                                                                            "completed",
+                                                                        )
+                                                                    }
+                                                                    className="rounded-full bg-emerald-900 px-4 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                                                                >
+                                                                    {columnKey ===
+                                                                    "todo"
+                                                                        ? "Mark Complete"
+                                                                        : "Finish"}
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    handleChangeStatus(
+                                                                        task,
+                                                                        "todo",
+                                                                    )
+                                                                }
+                                                                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700"
+                                                            >
+                                                                Move to Todo
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setEditingTask(
+                                                                    task,
+                                                                )
+                                                            }
+                                                            className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                                        >
+                                                            Edit
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                handleDeleteTask(
+                                                                    task.id,
+                                                                )
+                                                            }
+                                                            className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     )}
                                 </div>
                             </div>

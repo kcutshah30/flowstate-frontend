@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { TaskTimer } from "./TaskTimer";
 import { useAuth } from "../hooks/useAuth";
+import { useSession } from "../hooks/useSession";
+import { isActiveSession } from "../features/sessions/sessionTypes";
 
 interface TopbarProps {
   title: string;
@@ -7,6 +10,7 @@ interface TopbarProps {
 
 export function Topbar({ title }: TopbarProps) {
   const { user, logout } = useAuth();
+  const { activeSession } = useSession();
   const [busy, setBusy] = useState(false);
 
   const handleLogout = async () => {
@@ -27,6 +31,9 @@ export function Topbar({ title }: TopbarProps) {
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          {isActiveSession(activeSession) ? (
+            <TaskTimer session={activeSession} />
+          ) : null}
           {user && (
             <span className="text-sm text-slate-600">
               Signed in as {user.name || user.email}
