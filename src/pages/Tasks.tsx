@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Modal } from "../components/Modal";
 import { PageLayout } from "../components/PageLayout";
 import { SessionControls } from "../components/SessionControls";
 import { TagMultiSelect } from "../components/TagMultiSelect";
@@ -164,7 +165,9 @@ export default function Tasks() {
     const [dueDate, setDueDate] = useState("");
     const [priority, setPriority] = useState<TaskPriority>("medium");
     const [editingTask, setEditingTask] = useState<Task | null>(null);
+    const [createModalOpen, setCreateModalOpen] = useState(false);
     const [saving, setSaving] = useState(false);
+    const createTitleRef = useRef<HTMLInputElement | null>(null);
     const editTitleRef = useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
@@ -227,6 +230,25 @@ export default function Tasks() {
         [filteredTasks],
     );
 
+    const resetCreateForm = () => {
+        setTitle("");
+        setDescription("");
+        setDueDate("");
+        setPriority("medium");
+        setCreateCategoryId(undefined);
+        setCreateTagIds([]);
+    };
+
+    const openCreateModal = () => {
+        resetCreateForm();
+        setCreateModalOpen(true);
+    };
+
+    const closeCreateModal = () => {
+        setCreateModalOpen(false);
+        resetCreateForm();
+    };
+
     const handleCreateTask = async () => {
         if (!title.trim()) return;
         setSaving(true);
@@ -247,12 +269,7 @@ export default function Tasks() {
                     createCategoryId,
                 );
                 setTasks((current) => [taskWithCategory, ...current]);
-                setTitle("");
-                setDescription("");
-                setDueDate("");
-                setPriority("medium");
-                setCreateCategoryId(undefined);
-                setCreateTagIds([]);
+                closeCreateModal();
             }
         } catch (err) {
             console.error("Failed to create task:", err);
@@ -408,233 +425,96 @@ export default function Tasks() {
     const activeTask = editingTask ?? null;
 
     useEffect(() => {
+        if (!createModalOpen || !createTitleRef.current) return;
+        createTitleRef.current.focus();
+    }, [createModalOpen]);
+
+    useEffect(() => {
         if (!editingTask || !editTitleRef.current) return;
-        editTitleRef.current.scrollIntoView({
-            block: "center",
-            behavior: "smooth",
-        });
-        editTitleRef.current.focus({ preventScroll: true });
-    }, [editingTask]);
+        editTitleRef.current.focus();
+    }, [editingTask?.id]);
 
     return (
         <PageLayout title="Tasks">
-            <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-                <div className="rounded-4xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <h1 className="text-2xl font-semibold text-slate-900">
-                                Task board
-                            </h1>
-                            <p className="mt-1 text-sm text-slate-500">
-                                Create, edit, delete, and move tasks across
-                                columns.
-                            </p>
-                        </div>
-                        <div className="grid gap-3 min-w-[220px]">
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-600">
-                                    Filter by category
-                                </label>
-                                <select
-                                    value={selectedCategoryId}
-                                    onChange={(event) =>
-                                        setSelectedCategoryId(
-                                            event.target.value === "all"
-                                                ? "all"
-                                                : Number(event.target.value),
-                                        )
-                                    }
-                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                                >
-                                    <option value="all">All categories</option>
-                                    {categories.map((category) => (
-                                        <option
-                                            key={category.id}
-                                            value={category.id}
-                                        >
-                                            {category.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-600">
-                                    Filter by tag
-                                </label>
-                                <select
-                                    value={selectedTagId}
-                                    onChange={(event) =>
-                                        setSelectedTagId(
-                                            event.target.value === "all"
-                                                ? "all"
-                                                : Number(event.target.value),
-                                        )
-                                    }
-                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                                >
-                                    <option value="all">All tags</option>
-                                    {tags.map((tag) => (
-                                        <option key={tag.id} value={tag.id}>
-                                            {tag.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div className="mt-6 space-y-4">
-                        {error || sessionError ? (
-                            <div className="rounded-[1.75rem] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                                {error || sessionError}
-                            </div>
-                        ) : null}
-
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <input
-                                value={title}
-                                onChange={(event) =>
-                                    setTitle(event.target.value)
-                                }
-                                placeholder="Task title"
-                                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                            />
-                            <input
-                                value={toDateTimeLocalValue(dueDate)}
-                                onChange={(event) =>
-                                    setDueDate(
-                                        fromDateTimeLocalValue(
-                                            event.target.value,
-                                        ),
-                                    )
-                                }
-                                type="datetime-local"
-                                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                            />
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <div>
-                                <select
-                                    value={priority}
-                                    onChange={(event) =>
-                                        setPriority(
-                                            event.target.value as TaskPriority,
-                                        )
-                                    }
-                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                                >
-                                    {priorityOptions.map((priorityKey) => {
-                                        const meta =
-                                            getPriorityMeta(priorityKey);
-                                        return (
-                                            <option
-                                                key={priorityKey}
-                                                value={priorityKey}
-                                            >
-                                                {meta.emoji} {meta.label}
-                                            </option>
-                                        );
-                                    })}
-                                </select>
-                            </div>
-                            <div>
-                                <select
-                                    value={createCategoryId ?? ""}
-                                    onChange={(event) =>
-                                        setCreateCategoryId(
-                                            event.target.value
-                                                ? Number(event.target.value)
-                                                : undefined,
-                                        )
-                                    }
-                                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                                >
-                                    <option value="">No category</option>
-                                    {categories.map((category) => {
-                                        const categoryMeta =
-                                            category.slug &&
-                                            getCategoryMeta(category.slug);
-                                        return (
-                                            <option
-                                                key={category.id}
-                                                value={category.id}
-                                            >
-                                                {categoryMeta
-                                                    ? `${categoryMeta.emoji} ${category.name}`
-                                                    : category.name}
-                                            </option>
-                                        );
-                                    })}
-                                </select>
-                            </div>
-                        </div>
-                        <div className="mt-4">
-                            <label className="mb-2 block text-sm font-medium text-slate-600">
-                                Tags
-                            </label>
-                            <TagMultiSelect
-                                options={tags}
-                                value={createTagIds}
-                                onChange={setCreateTagIds}
-                            />
-                        </div>
-                        <textarea
-                            value={description}
-                            onChange={(event) =>
-                                setDescription(event.target.value)
-                            }
-                            placeholder="Description (optional)"
-                            className="min-h-[96px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                        />
-                        <button
-                            type="button"
-                            onClick={handleCreateTask}
-                            disabled={saving}
-                            className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-60"
-                        >
-                            {saving ? "Saving..." : "Add task"}
-                        </button>
-                    </div>
-                </div>
-
-                <div className="rounded-4xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <h2 className="text-xl font-semibold text-slate-900">
-                        Board status
-                    </h2>
-                    <p className="mt-2 text-sm text-slate-500">
-                        Drag and drop is not enabled yet; use the buttons to
-                        move tasks.
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold text-slate-900">
+                        Task board
+                    </h1>
+                    <p className="mt-1 text-sm text-slate-500">
+                        Create, edit, delete, and move tasks across columns.
                     </p>
-                    <div className="mt-6 space-y-4">
-                        <div className="rounded-3xl bg-slate-100 p-4">
-                            <p className="text-sm font-semibold text-slate-900">
-                                Todo
-                            </p>
-                            <p className="mt-1 text-sm text-slate-600">
-                                Tasks that need to start.
-                            </p>
-                        </div>
-                        <div className="rounded-3xl bg-slate-100 p-4">
-                            <p className="text-sm font-semibold text-slate-900">
-                                In Progress
-                            </p>
-                            <p className="mt-1 text-sm text-slate-600">
-                                Tasks you are actively working on.
-                            </p>
-                        </div>
-                        <div className="rounded-3xl bg-slate-100 p-4">
-                            <p className="text-sm font-semibold text-slate-900">
-                                Completed
-                            </p>
-                            <p className="mt-1 text-sm text-slate-600">
-                                Tasks finished and synced with your API.
-                            </p>
-                        </div>
+                </div>
+                <button
+                    type="button"
+                    onClick={openCreateModal}
+                    className="inline-flex shrink-0 items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700"
+                >
+                    New task
+                </button>
+            </div>
+
+            <div className="mt-6 rounded-4xl border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Filters
+                </h2>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-600">
+                            Category
+                        </label>
+                        <select
+                            value={selectedCategoryId}
+                            onChange={(event) =>
+                                setSelectedCategoryId(
+                                    event.target.value === "all"
+                                        ? "all"
+                                        : Number(event.target.value),
+                                )
+                            }
+                            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                        >
+                            <option value="all">All categories</option>
+                            {categories.map((category) => (
+                                <option key={category.id} value={category.id}>
+                                    {category.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-600">
+                            Tag
+                        </label>
+                        <select
+                            value={selectedTagId}
+                            onChange={(event) =>
+                                setSelectedTagId(
+                                    event.target.value === "all"
+                                        ? "all"
+                                        : Number(event.target.value),
+                                )
+                            }
+                            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                        >
+                            <option value="all">All tags</option>
+                            {tags.map((tag) => (
+                                <option key={tag.id} value={tag.id}>
+                                    {tag.name}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                 </div>
             </div>
 
-            <section className="mt-8 grid gap-4 xl:grid-cols-3">
+            {error || sessionError ? (
+                <div className="mt-6 rounded-[1.75rem] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                    {error || sessionError}
+                </div>
+            ) : null}
+
+            <section className="mt-6 grid gap-4 xl:grid-cols-3">
                 {(["todo", "in_progress", "completed"] as TaskStatus[]).map(
                     (columnKey) => {
                         const columnTasks = columns[columnKey];
@@ -870,91 +750,59 @@ export default function Tasks() {
                 )}
             </section>
 
-            {activeTask ? (
-                <div className="mt-8 rounded-4xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <h3 className="text-lg font-semibold text-slate-900">
-                                Edit task
-                            </h3>
-                            <p className="mt-1 text-sm text-slate-500">
-                                Update the selected task and save changes.
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setEditingTask(null)}
-                            className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                            Cancel
-                        </button>
-                    </div>
-
-                    <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <Modal
+                open={createModalOpen}
+                onClose={closeCreateModal}
+                title="New task"
+                description="Add a task to your board."
+            >
+                <div className="space-y-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
                         <input
-                            ref={editTitleRef}
-                            value={activeTask.title}
-                            onChange={(event) =>
-                                setEditingTask({
-                                    ...activeTask,
-                                    title: event.target.value,
-                                })
-                            }
-                            className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                            ref={createTitleRef}
+                            value={title}
+                            onChange={(event) => setTitle(event.target.value)}
+                            placeholder="Task title"
+                            className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                         />
                         <input
+                            value={toDateTimeLocalValue(dueDate)}
+                            onChange={(event) =>
+                                setDueDate(
+                                    fromDateTimeLocalValue(event.target.value),
+                                )
+                            }
                             type="datetime-local"
-                            value={toDateTimeLocalValue(activeTask.dueDate)}
-                            onChange={(event) =>
-                                setEditingTask({
-                                    ...activeTask,
-                                    dueDate: fromDateTimeLocalValue(
-                                        event.target.value,
-                                    ),
-                                })
-                            }
-                            className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                            className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                         />
                     </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-2">
                         <select
-                            value={activeTask.priority}
+                            value={priority}
                             onChange={(event) =>
-                                setEditingTask({
-                                    ...activeTask,
-                                    priority: event.target
-                                        .value as TaskPriority,
-                                })
+                                setPriority(event.target.value as TaskPriority)
                             }
-                            className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                         >
                             {priorityOptions.map((priorityKey) => {
                                 const meta = getPriorityMeta(priorityKey);
                                 return (
-                                    <option
-                                        key={priorityKey}
-                                        value={priorityKey}
-                                    >
+                                    <option key={priorityKey} value={priorityKey}>
                                         {meta.emoji} {meta.label}
                                     </option>
                                 );
                             })}
                         </select>
                         <select
-                            value={activeTask.categoryId ?? ""}
-                            onChange={(event) => {
-                                const categoryId = event.target.value
-                                    ? Number(event.target.value)
-                                    : undefined;
-                                setEditingTask({
-                                    ...activeTask,
-                                    categoryId,
-                                    category: categoryId
-                                        ? getCategoryById(categoryId)
-                                        : null,
-                                });
-                            }}
-                            className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                            value={createCategoryId ?? ""}
+                            onChange={(event) =>
+                                setCreateCategoryId(
+                                    event.target.value
+                                        ? Number(event.target.value)
+                                        : undefined,
+                                )
+                            }
+                            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                         >
                             <option value="">No category</option>
                             {categories.map((category) => {
@@ -962,10 +810,7 @@ export default function Tasks() {
                                     category.slug &&
                                     getCategoryMeta(category.slug);
                                 return (
-                                    <option
-                                        key={category.id}
-                                        value={category.id}
-                                    >
+                                    <option key={category.id} value={category.id}>
                                         {categoryMeta
                                             ? `${categoryMeta.emoji} ${category.name}`
                                             : category.name}
@@ -974,62 +819,182 @@ export default function Tasks() {
                             })}
                         </select>
                     </div>
-                    <div className="mt-4">
+                    <div>
                         <label className="mb-2 block text-sm font-medium text-slate-600">
                             Tags
                         </label>
                         <TagMultiSelect
                             options={tags}
-                            value={activeTask.tags.map((tag) => tag.id)}
-                            onChange={(selectedIds) =>
-                                setEditingTask({
-                                    ...activeTask,
-                                    tags: tags.filter((tag) =>
-                                        selectedIds.includes(tag.id),
-                                    ),
-                                })
-                            }
+                            value={createTagIds}
+                            onChange={setCreateTagIds}
                         />
                     </div>
                     <textarea
-                        value={activeTask.description || ""}
-                        onChange={(event) =>
-                            setEditingTask({
-                                ...activeTask,
-                                description: event.target.value,
-                            })
-                        }
-                        className="mt-4 min-h-[96px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-                        placeholder="Description"
+                        value={description}
+                        onChange={(event) => setDescription(event.target.value)}
+                        placeholder="Description (optional)"
+                        className="min-h-[96px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                     />
-                    <div className="mt-4 flex flex-wrap gap-3">
-                        <button
-                            type="button"
-                            onClick={handleSaveTask}
-                            disabled={saving}
-                            className="rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-60"
-                        >
-                            {saving ? "Saving..." : "Save changes"}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={async () => {
-                                await handleChangeStatus(
-                                    activeTask,
-                                    "in_progress",
-                                );
+                    <button
+                        type="button"
+                        onClick={handleCreateTask}
+                        disabled={saving}
+                        className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-60"
+                    >
+                        {saving ? "Saving..." : "Add task"}
+                    </button>
+                </div>
+            </Modal>
+
+            <Modal
+                open={activeTask !== null}
+                onClose={() => setEditingTask(null)}
+                title="Edit task"
+                description="Update the selected task and save changes."
+            >
+                {activeTask ? (
+                    <div className="space-y-4">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <input
+                                ref={editTitleRef}
+                                value={activeTask.title}
+                                onChange={(event) =>
+                                    setEditingTask({
+                                        ...activeTask,
+                                        title: event.target.value,
+                                    })
+                                }
+                                className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                            />
+                            <input
+                                type="datetime-local"
+                                value={toDateTimeLocalValue(activeTask.dueDate)}
+                                onChange={(event) =>
+                                    setEditingTask({
+                                        ...activeTask,
+                                        dueDate: fromDateTimeLocalValue(
+                                            event.target.value,
+                                        ),
+                                    })
+                                }
+                                className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                            />
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                            <select
+                                value={activeTask.priority}
+                                onChange={(event) =>
+                                    setEditingTask({
+                                        ...activeTask,
+                                        priority: event.target
+                                            .value as TaskPriority,
+                                    })
+                                }
+                                className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                            >
+                                {priorityOptions.map((priorityKey) => {
+                                    const meta = getPriorityMeta(priorityKey);
+                                    return (
+                                        <option
+                                            key={priorityKey}
+                                            value={priorityKey}
+                                        >
+                                            {meta.emoji} {meta.label}
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                            <select
+                                value={activeTask.categoryId ?? ""}
+                                onChange={(event) => {
+                                    const categoryId = event.target.value
+                                        ? Number(event.target.value)
+                                        : undefined;
+                                    setEditingTask({
+                                        ...activeTask,
+                                        categoryId,
+                                        category: categoryId
+                                            ? getCategoryById(categoryId)
+                                            : null,
+                                    });
+                                }}
+                                className="w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                            >
+                                <option value="">No category</option>
+                                {categories.map((category) => {
+                                    const categoryMeta =
+                                        category.slug &&
+                                        getCategoryMeta(category.slug);
+                                    return (
+                                        <option
+                                            key={category.id}
+                                            value={category.id}
+                                        >
+                                            {categoryMeta
+                                                ? `${categoryMeta.emoji} ${category.name}`
+                                                : category.name}
+                                        </option>
+                                    );
+                                })}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="mb-2 block text-sm font-medium text-slate-600">
+                                Tags
+                            </label>
+                            <TagMultiSelect
+                                options={tags}
+                                value={activeTask.tags.map((tag) => tag.id)}
+                                onChange={(selectedIds) =>
+                                    setEditingTask({
+                                        ...activeTask,
+                                        tags: tags.filter((tag) =>
+                                            selectedIds.includes(tag.id),
+                                        ),
+                                    })
+                                }
+                            />
+                        </div>
+                        <textarea
+                            value={activeTask.description || ""}
+                            onChange={(event) =>
                                 setEditingTask({
                                     ...activeTask,
-                                    status: "in_progress",
-                                });
-                            }}
-                            className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                            Set in progress
-                        </button>
+                                    description: event.target.value,
+                                })
+                            }
+                            className="min-h-[96px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
+                            placeholder="Description"
+                        />
+                        <div className="flex flex-wrap gap-3">
+                            <button
+                                type="button"
+                                onClick={handleSaveTask}
+                                disabled={saving}
+                                className="rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:opacity-60"
+                            >
+                                {saving ? "Saving..." : "Save changes"}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    await handleChangeStatus(
+                                        activeTask,
+                                        "in_progress",
+                                    );
+                                    setEditingTask({
+                                        ...activeTask,
+                                        status: "in_progress",
+                                    });
+                                }}
+                                className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                                Set in progress
+                            </button>
+                        </div>
                     </div>
-                </div>
-            ) : null}
+                ) : null}
+            </Modal>
         </PageLayout>
     );
 }
