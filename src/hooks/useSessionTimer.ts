@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
-import type { TaskSession } from "../features/sessions/sessionTypes";
+import {
+    wallClockElapsedSeconds,
+    type TaskSession,
+} from "../features/sessions/sessionTypes";
 
 export const calculateElapsedSeconds = (
     session: TaskSession | null,
+    nowMs: number = Date.now(),
 ): number => {
     if (!session) return 0;
 
@@ -10,14 +14,23 @@ export const calculateElapsedSeconds = (
         return session.tracked_seconds;
     }
 
-    const startedAt = new Date(session.started_at).getTime();
-    if (Number.isNaN(startedAt)) return session.tracked_seconds;
+    const wallClock = wallClockElapsedSeconds(session, nowMs);
 
-    const elapsed =
-        Math.floor((Date.now() - startedAt) / 1000) -
-        session.total_paused_seconds;
+    if (session.timer_running && session.timer_continues_from) {
+        const continuesFrom = new Date(session.timer_continues_from).getTime();
+        if (!Number.isNaN(continuesFrom)) {
+            const anchored = Math.max(
+                0,
+                session.tracked_seconds +
+                    Math.floor((nowMs - continuesFrom) / 1000),
+            );
+            if (Math.abs(anchored - wallClock) <= 2) {
+                return anchored;
+            }
+        }
+    }
 
-    return Math.max(0, elapsed);
+    return wallClock;
 };
 
 export const formatDuration = (totalSeconds: number): string => {

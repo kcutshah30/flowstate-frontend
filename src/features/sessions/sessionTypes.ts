@@ -9,6 +9,8 @@ export type TaskSession = {
     ended_at: string | null;
     total_paused_seconds: number;
     tracked_seconds: number;
+    timer_running?: boolean;
+    timer_continues_from?: string;
 };
 
 const ACTIVE_STORAGE_KEY = "flowstate:activeSessionId";
@@ -60,6 +62,9 @@ export const normalizeSession = (payload: unknown): TaskSession | null => {
         return null;
     }
 
+    const timerContinuesFrom = session.timer_continues_from;
+    const timerRunning = session.timer_running;
+
     return {
         id,
         task_id: taskId,
@@ -72,8 +77,45 @@ export const normalizeSession = (payload: unknown): TaskSession | null => {
         ended_at: session.ended_at ? String(session.ended_at) : null,
         total_paused_seconds: Number(session.total_paused_seconds) || 0,
         tracked_seconds: Number(session.tracked_seconds) || 0,
+        timer_running:
+            timerRunning === true || timerRunning === 1 || timerRunning === "1",
+        timer_continues_from:
+            typeof timerContinuesFrom === "string" && timerContinuesFrom
+                ? timerContinuesFrom
+                : undefined,
     };
 };
 
 export const isActiveSession = (session: TaskSession | null) =>
     session?.status === "running" || session?.status === "paused";
+
+/** Elapsed active time from session wall-clock fields (documented source of truth). */
+export const wallClockElapsedSeconds = (
+    session: TaskSession,
+    nowMs: number = Date.now(),
+): number => {
+    const startedAt = new Date(session.started_at).getTime();
+    if (Number.isNaN(startedAt)) return session.tracked_seconds;
+
+    return Math.max(
+        0,
+        Math.floor((nowMs - startedAt) / 1000) - session.total_paused_seconds,
+    );
+};
+
+/**
+ * Re-baseline client tick from wall-clock after any API sync while running.
+ * Avoids double-count when the API sends live tracked_seconds with a stale anchor.
+ */
+export const anchorRunningSessionForClient = (
+    session: TaskSession,
+): TaskSession => {
+    if (session.status !== "running") return session;
+
+    return {
+        ...session,
+        tracked_seconds: wallClockElapsedSeconds(session),
+        timer_running: true,
+        timer_continues_from: new Date().toISOString(),
+    };
+};

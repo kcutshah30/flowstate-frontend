@@ -6,7 +6,7 @@ import {
     type ReactNode,
 } from "react";
 import {
-    getSession,
+    getActiveSession,
     getSessionErrorMessage,
     pauseSession as apiPauseSession,
     resumeSession as apiResumeSession,
@@ -14,7 +14,7 @@ import {
     stopSession as apiStopSession,
 } from "../features/sessions/sessionApi";
 import {
-    getStoredActiveSessionId,
+    anchorRunningSessionForClient,
     isActiveSession,
     setStoredActiveSessionId,
     type TaskSession,
@@ -45,29 +45,27 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
 
     const clearError = useCallback(() => setError(null), []);
 
-    const applySession = useCallback((session: TaskSession | null) => {
-        setActiveSession(session);
-        if (isActiveSession(session)) {
-            setStoredActiveSessionId(session!.id);
-        } else {
-            setStoredActiveSessionId(null);
-        }
-    }, []);
+    const applySession = useCallback(
+        (session: TaskSession | null): TaskSession | null => {
+            const next =
+                session?.status === "running"
+                    ? anchorRunningSessionForClient(session)
+                    : session;
+            setActiveSession(next);
+            if (isActiveSession(next)) {
+                setStoredActiveSessionId(next!.id);
+            } else {
+                setStoredActiveSessionId(null);
+            }
+            return next;
+        },
+        [],
+    );
 
     const refreshSession = useCallback(async () => {
-        const storedId = getStoredActiveSessionId();
-        if (!storedId) {
-            applySession(null);
-            return;
-        }
-
         try {
-            const session = await getSession(storedId);
-            if (isActiveSession(session)) {
-                applySession(session);
-            } else {
-                applySession(null);
-            }
+            const session = await getActiveSession();
+            applySession(isActiveSession(session) ? session : null);
         } catch {
             applySession(null);
         }
@@ -100,8 +98,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
             setError(null);
             try {
                 const session = await apiStartSession(taskId);
-                applySession(session);
-                return session;
+                return applySession(session) ?? session;
             } catch (err) {
                 const message = getSessionErrorMessage(err);
                 setError(message);
@@ -119,8 +116,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         setError(null);
         try {
             const session = await apiPauseSession(activeSession.id);
-            applySession(session);
-            return session;
+            return applySession(session);
         } catch (err) {
             setError(getSessionErrorMessage(err));
             throw err;
@@ -135,8 +131,7 @@ export const SessionProvider = ({ children }: { children: ReactNode }) => {
         setError(null);
         try {
             const session = await apiResumeSession(activeSession.id);
-            applySession(session);
-            return session;
+            return applySession(session);
         } catch (err) {
             setError(getSessionErrorMessage(err));
             throw err;

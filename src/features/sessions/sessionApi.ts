@@ -27,6 +27,22 @@ export const startSession = async (taskId: number): Promise<TaskSession> => {
     return session;
 };
 
+export const getActiveSession = async (): Promise<TaskSession | null> => {
+    await initCsrf();
+    const res = await api.get("/api/sessions/active");
+    const payload = res.data;
+
+    if (!payload || payload.active !== true) {
+        return null;
+    }
+
+    const session = normalizeSession(payload);
+    if (!session) {
+        throw new Error("Invalid active session response from server.");
+    }
+    return session;
+};
+
 export const getSession = async (sessionId: number): Promise<TaskSession> => {
     await initCsrf();
     const res = await api.get(`/api/sessions/${sessionId}`);
